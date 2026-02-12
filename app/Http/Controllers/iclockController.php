@@ -316,22 +316,33 @@ class iclockController extends Controller
             $nextCmdId = $cmdIdService->getNextCmdId();
             Log::info('Get Request', ['nextCmdId' => $nextCmdId]);
             
+            $timezone = 'America/Mexico_City'; // Default fallback
+            if ($device && $device->oficina && $device->oficina->timezone) {
+                $timezone = $device->oficina->timezone;
+            }
+
             $intDateTime = $this->oldEncodeTime(
-                Carbon::now('America/Mexico_City')->year,
-                Carbon::now('America/Mexico_City')->month,
-                Carbon::now('America/Mexico_City')->day,
-                Carbon::now('America/Mexico_City')->hour,
-                Carbon::now('America/Mexico_City')->minute,
-                Carbon::now('America/Mexico_City')->second
+                Carbon::now($timezone)->year,
+                Carbon::now($timezone)->month,
+                Carbon::now($timezone)->day,
+                Carbon::now($timezone)->hour,
+                Carbon::now($timezone)->minute,
+                Carbon::now($timezone)->second
             );
-            /*
-            // Add a set time command to the database
-            $device->commands()->create([
-                'device_id' => $device->id,
-                'command' => $nextCmdId,
-                'data' => "C:{$nextCmdId}:SET OPTIONS DateTime=" . $intDateTime,
-                'executed_at' => null
-            ]);*/
+            
+            // Add a set time command to the database synchronously if clock is out of sync
+            // For now, mirroring the logic to always send it or send it as a regular command
+            // We will send it as a pending command if there's a discrepancy
+            if ($device->getTimezoneDiscrepancyCount() > 0) {
+                $device->commands()->create([
+                    'device_id' => $device->id,
+                    'command' => $nextCmdId,
+                    'data' => "C:{$nextCmdId}:SET OPTIONS DateTime=" . $intDateTime,
+                    'executed_at' => null
+                ]);
+                // refresh pending commands
+                $commands = $device->pendingCommands();
+            }
 
             Log::info('getrequest commands', ['commands' => count($commands)]);
 

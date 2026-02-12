@@ -543,4 +543,42 @@ public function monitor()
             return redirect()->route('devices.index')->with('error', 'Error al actualizar biométrico');
         }
     }
+
+    public function deleteEmployeeRecord(Request $request)
+    {
+        $oficinas = Oficina::all();
+        $title = "Delete Employee Record from Device";
+        return view('devices.delete_employee', compact('oficinas', 'title'));
+    }
+
+    public function runDeleteFingerRecord(Request $request)
+    {
+        $idagente = $request->input('idagente');
+        $idoficina = $request->input('oficina');
+        
+        $devices = Device::where('idoficina', $idoficina)->get();
+        
+        if ($devices->isEmpty()) {
+            return redirect()->back()->with('error', 'No devices found for this office');
+        }
+
+        try {
+            $cmdIdService = resolve(CommandIdService::class);
+            
+            foreach ($devices as $device) {
+                $nextCmdId = $cmdIdService->getNextCmdId();
+                $device->commands()->create([
+                    'device_id' => $device->id,
+                    'command' => $nextCmdId,
+                    'data' => "C:{$nextCmdId}:DATA DELETE USERINFO PIN={$idagente}",
+                    'executed_at' => null
+                ]);
+            }
+
+            return redirect()->route('devices.index')->with('success', "Command to delete user {$idagente} sent to " . $devices->count() . " devices.");
+        } catch (\Exception $e) {
+            Log::error('Error deleting employee record', ['error' => $e->getMessage()]);
+            return redirect()->back()->with('error', 'Error sending delete command');
+        }
+    }
 }
