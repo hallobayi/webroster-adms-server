@@ -108,14 +108,15 @@ class Device extends Model
         return $this->commands()->pending()->get();
     }
 
-    public function populate()
+    public function populate($employees = null)
     {
         try {
             $service = new PopulateEmployeesService($this);
-            $service->run();
+            return $service->run($employees);
         } catch (\Exception $e) {
             // log the error
             \Log::error($e->getMessage());
+            return 0;
         }        
     }
     
