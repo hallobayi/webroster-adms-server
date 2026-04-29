@@ -67,9 +67,14 @@ class WebhookController extends Controller
         return redirect()->route('webhooks.index')->with('success', 'Webhook updated successfully');
     }
 
-    public function delete(Request $request)
+    public function delete($id)
     {
-        $webhook = Webhook::find($request->input('id'));
+        $validatedId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($validatedId === false) {
+            return redirect()->route('webhooks.index')->with('error', 'Invalid webhook id');
+        }
+
+        $webhook = Webhook::find((int) $validatedId);
         if (!$webhook) {
             return redirect()->route('webhooks.index')->with('error', 'Webhook not found');
         }
