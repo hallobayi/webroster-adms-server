@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('webhooks', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('device_id')->unique()->constrained('devices');
+            $table->foreignId('device_id')->unique()->constrained('devices')->cascadeOnDelete();
             $table->string('url')->nullable();
             $table->timestamps();
         });
