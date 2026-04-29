@@ -81,7 +81,7 @@ Route::middleware(['auth'])
         Route::post('webhooks/store', 'store')->name('webhooks.store');
         Route::get('webhooks/{id}/edit', 'edit')->name('webhooks.edit');
         Route::post('webhooks/{id}/update', 'update')->name('webhooks.update');
-        Route::get('webhooks/delete', 'delete')->name('webhooks.delete');
+        Route::delete('webhooks/{id}', 'delete')->name('webhooks.delete');
     });
 
 // handshake
