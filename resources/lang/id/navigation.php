@@ -10,6 +10,7 @@ return [
     'device_log' => 'Log Perangkat',
     'finger_log' => 'Log Sidik Jari',
     'fingerprints' => 'Sidik Jari',
+    'webhooks' => 'Webhook',
     'logout' => 'Keluar',
     'login' => 'Masuk',
     'registration' => 'Pendaftaran',

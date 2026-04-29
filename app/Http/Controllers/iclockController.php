@@ -10,6 +10,7 @@ use App\Services\CommandIdService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Throwable;
 use Log;
 
@@ -157,6 +158,9 @@ class iclockController extends Controller
                 Log::error('receiveRecords update device ', ['error' => $e]);
             }
             
+            $attLogPayload = [];
+            $device = Device::where('serial_number', $request->input('SN'))->first();
+
             foreach ($arr as $rey) {
                 if(empty($rey)){
                     continue;
@@ -168,7 +172,7 @@ class iclockController extends Controller
                 }
 
                 $table = $request->input('table');
-                
+
                 if ($table=='OPERLOG') {
                     $timestamp = date('Y-m-d H:i:s');
                     $employee_id = 0;
@@ -180,13 +184,12 @@ class iclockController extends Controller
                     $timestamp = $data[1] ?? date('Y-m-d H:i:s');
                     $employee_id = $data[0];
                 }
-                
+
                 $q['sn'] = $request->input('SN');
                 $q['table'] = $table;
                 $q['stamp'] = $stamp;
                 $q['employee_id'] = $employee_id;
                 $q['timestamp'] = $timestamp;
-                $device = Device::where('serial_number', $request->input('SN'))->first();
                 $q['idoficina'] = $device->oficina->idoficina ?? null;
                 $q['idempresa'] = $device->idempresa ?? null;
                 $q['status1'] = $this->validateAndFormatInteger($data[2] ?? null);
@@ -200,9 +203,13 @@ class iclockController extends Controller
                     DB::table('device_options')->insert($q);
                 }else{
                     DB::table('attendances')->insert($q);
+                    $attLogPayload[] = $q;
                 }
                 $tot++;
             }
+
+            $this->dispatchWebhook($device, $attLogPayload);
+
             return "OK: ".$tot;
 
         } catch (Throwable $e) {
@@ -442,6 +449,28 @@ class iclockController extends Controller
     {
         return isset($value) && $value !== '' ? (int)$value : null;
         // return is_numeric($value) ? (int) $value : null;
+    }
+
+    private function dispatchWebhook($device, array $attLog): void
+    {
+        if (!$device || empty($attLog)) {
+            return;
+        }
+        $webhook = $device->webhook;
+        if (!$webhook || empty($webhook->url)) {
+            return;
+        }
+        try {
+            if (config('app.debug')) {
+                Log::info('send data to webhook ' . $webhook->url);
+            }
+            Http::timeout(5)->post($webhook->url, ['data' => $attLog]);
+        } catch (Throwable $e) {
+            Log::error('webhook dispatch failed', [
+                'url' => $webhook->url,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function oldEncodeTime(int $year, int $month, int $day, int $hour, int $minute, int $second): int

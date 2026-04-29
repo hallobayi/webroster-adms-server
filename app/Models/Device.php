@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use App\Models\Command;
 use App\Models\Oficina;
 use App\Models\Attendance;
+use App\Models\Webhook;
 use App\Services\PopulateEmployeesService;
 
 class Device extends Model
@@ -96,6 +97,11 @@ class Device extends Model
     public function commands()
     {
         return $this->hasMany(Command::class);
+    }
+
+    public function webhook()
+    {
+        return $this->hasOne(Webhook::class, 'device_id');
     }
 
     public function scopeOnline($query)
