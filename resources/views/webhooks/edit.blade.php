@@ -31,8 +31,14 @@
                 <input type="url" name="url" class="form-control" id="url" value="{{ old('url', $webhook->url) }}" placeholder="https://example.com/hooks/attendance">
             </div>
             <button type="submit" class="btn btn-primary">Update</button>
-            <a href="{{ route('webhooks.delete', ['id' => $webhook->id ]) }}" class="btn btn-danger">Delete</a>
-            <a href="{{ route('webhooks.index') }}" class="btn btn-secondary">Cancel</a>
         </form>
+
+        <form method="post" action="{{ route('webhooks.delete', ['id' => $webhook->id ]) }}" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this webhook?');">
+            @csrf
+            @method('DELETE')
+            <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+
+        <a href="{{ route('webhooks.index') }}" class="btn btn-secondary">Cancel</a>
     </div>
 @endsection
