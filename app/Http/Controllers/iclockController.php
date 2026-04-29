@@ -460,19 +460,58 @@ class iclockController extends Controller
         if (!$webhook || empty($webhook->url)) {
             return;
         }
+
+        $logUrl = $this->sanitizeWebhookUrlForLog($webhook->url);
+
         try {
             if (config('app.debug')) {
-                Log::info('send data to webhook ' . $webhook->url);
+                Log::info('send data to webhook ' . $logUrl);
             }
-            Http::timeout(5)->post($webhook->url, ['data' => $attLog]);
+
+            $response = Http::timeout(5)->post($webhook->url, ['data' => $attLog]);
+
+            if ($response->failed()) {
+                Log::error('webhook dispatch failed', [
+                    'url' => $logUrl,
+                    'status' => $response->status(),
+                ]);
+            }
         } catch (Throwable $e) {
             Log::error('webhook dispatch failed', [
-                'url' => $webhook->url,
+                'url' => $logUrl,
                 'error' => $e->getMessage(),
             ]);
         }
     }
 
+    private function sanitizeWebhookUrlForLog(string $url): string
+    {
+        $parts = parse_url($url);
+
+        if ($parts === false) {
+            return '[invalid webhook url]';
+        }
+
+        $sanitized = '';
+
+        if (isset($parts['scheme'])) {
+            $sanitized .= $parts['scheme'] . '://';
+        }
+
+        if (isset($parts['host'])) {
+            $sanitized .= $parts['host'];
+        }
+
+        if (isset($parts['port'])) {
+            $sanitized .= ':' . $parts['port'];
+        }
+
+        if (isset($parts['path'])) {
+            $sanitized .= $parts['path'];
+        }
+
+        return $sanitized !== '' ? $sanitized : '[webhook url omitted]';
+    }
     private function oldEncodeTime(int $year, int $month, int $day, int $hour, int $minute, int $second): int
     {
         return (($year - 2000) * 12 * 31 + (($month - 1) * 31) + $day - 1) * (24 * 60 * 60)
