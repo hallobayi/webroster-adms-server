@@ -461,27 +461,30 @@ class iclockController extends Controller
             return;
         }
 
-        $logUrl = $this->sanitizeWebhookUrlForLog($webhook->url);
+        $url = $webhook->url;
+        $logUrl = $this->sanitizeWebhookUrlForLog($url);
 
-        try {
-            if (config('app.debug')) {
-                Log::info('send data to webhook ' . $logUrl);
-            }
+        app()->terminating(function () use ($url, $attLog, $logUrl): void {
+            try {
+                if (config('app.debug')) {
+                    Log::info('send data to webhook ' . $logUrl);
+                }
 
-            $response = Http::timeout(5)->post($webhook->url, ['data' => $attLog]);
+                $response = Http::timeout(5)->post($url, ['data' => $attLog]);
 
-            if ($response->failed()) {
+                if ($response->failed()) {
+                    Log::error('webhook dispatch failed', [
+                        'url' => $logUrl,
+                        'status' => $response->status(),
+                    ]);
+                }
+            } catch (Throwable $e) {
                 Log::error('webhook dispatch failed', [
                     'url' => $logUrl,
-                    'status' => $response->status(),
+                    'error' => $e->getMessage(),
                 ]);
             }
-        } catch (Throwable $e) {
-            Log::error('webhook dispatch failed', [
-                'url' => $logUrl,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        });
     }
 
     private function sanitizeWebhookUrlForLog(string $url): string
