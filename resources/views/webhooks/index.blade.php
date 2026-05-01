@@ -60,18 +60,21 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             let targetUrl = '';
+            const confirmModalElement = document.getElementById('confirmModal');
+            const confirmModal = bootstrap.Modal.getOrCreateInstance(confirmModalElement);
+
             document.querySelectorAll('.delete-btn').forEach(function (button) {
                 button.addEventListener('click', function (event) {
                     event.preventDefault();
                     targetUrl = this.href;
-                    $('#confirmModal').modal('show');
+                    confirmModal.show();
                 });
             });
             document.getElementById('confirmBtn').addEventListener('click', function () {
                 window.location.href = targetUrl;
             });
             document.getElementById('cancelModal').addEventListener('click', function () {
-                $('#confirmModal').modal('hide');
+                confirmModal.hide();
             });
         });
     </script>
