@@ -44,7 +44,10 @@ class WebhookController extends Controller
             return redirect()->route('webhooks.index')->with('error', 'Webhook not found');
         }
         $title = 'Edit Webhook';
-        $devices = Device::orderBy('serial_number')->get();
+        $devices = Device::where(function ($query) use ($webhook) {
+            $query->whereDoesntHave('webhook')
+                ->orWhere('id', $webhook->device_id);
+        })->orderBy('serial_number')->get();
         return view('webhooks.edit', compact('webhook', 'devices', 'title'));
     }
 
