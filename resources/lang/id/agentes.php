@@ -11,6 +11,13 @@ return [
     // Messages
     'pulled_successfully' => 'Data karyawan berhasil ditarik.',
     'error_pulling' => 'Gagal menarik data karyawan dari perangkat.',
+    'pull_complete' => 'Penarikan selesai',
+    'pull_failed' => 'Penarikan gagal',
+    'pulled' => 'Ditarik dari stasiun',
+    'new_agents' => 'Karyawan baru',
+    'updated_agents' => 'Karyawan diperbarui',
+    'commands_queued' => 'Perintah perangkat diantrekan',
+    'close' => 'Tutup',
 
     // Tables
     'id_empresa' => 'ID Perusahaan',

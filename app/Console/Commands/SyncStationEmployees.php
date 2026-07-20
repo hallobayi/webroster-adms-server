@@ -26,7 +26,8 @@ class SyncStationEmployees extends Command
 
             $this->info(
                 "Office {$office->idempresa}/{$office->idoficina}: ".
-                "pulled {$result['pulled']}, new {$result['created']}, queued {$result['commands']}"
+                "pulled {$result['pulled']}, new {$result['created']}, ".
+                "updated {$result['updated']}, queued {$result['commands']}"
             );
         }
 

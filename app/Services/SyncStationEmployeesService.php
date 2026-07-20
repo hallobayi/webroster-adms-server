@@ -24,25 +24,58 @@ class SyncStationEmployeesService
 
         $agents = $this->stationAgentsService->getStationAgents($oficina);
 
-        if ($agents && isset($agents->status) && $agents->status === 'failed') {
+        Log::debug('SyncStationEmployeesService: raw agents payload', [
+            'idempresa' => $oficina->idempresa,
+            'idoficina' => $oficina->idoficina,
+            'type' => is_object($agents) ? get_class($agents) : gettype($agents),
+            'payload' => $agents,
+        ]);
+
+        if ($this->isFailedResponse($agents)) {
             Log::error('Failed to get station agents', [
                 'idempresa' => $oficina->idempresa,
                 'idoficina' => $oficina->idoficina,
-                'error' => $agents->message ?? 'Unknown error',
+                'error' => $this->extractValue($agents, 'message') ?? 'Unknown error',
             ]);
 
             return [
                 'pulled' => 0,
                 'created' => 0,
+                'updated' => 0,
                 'commands' => 0,
                 'failed' => true,
             ];
         }
 
         $normalizedAgents = $this->normalizeAgents($agents);
+
+        Log::debug('SyncStationEmployeesService: normalized agents', [
+            'idempresa' => $oficina->idempresa,
+            'idoficina' => $oficina->idoficina,
+            'count' => count($normalizedAgents),
+        ]);
+
+        if (empty($normalizedAgents)) {
+            Log::warning('SyncStationEmployeesService: no agents parsed from station response', [
+                'idempresa' => $oficina->idempresa,
+                'idoficina' => $oficina->idoficina,
+                'raw_payload' => $agents,
+            ]);
+        }
+
         $newEmployees = collect();
+        $updatedEmployees = collect();
 
         foreach ($normalizedAgents as $agentData) {
+            if (!isset($agentData['idagente'], $agentData['shortname'])) {
+                Log::warning('SyncStationEmployeesService: skipping malformed agent record', [
+                    'idempresa' => $oficina->idempresa,
+                    'idoficina' => $oficina->idoficina,
+                    'agent_data' => $agentData,
+                ]);
+                continue;
+            }
+
             $agent = Agente::updateOrCreate(
                 ['idagente' => $agentData['idagente']],
                 [
@@ -55,7 +88,20 @@ class SyncStationEmployeesService
             );
 
             if ($agent->wasRecentlyCreated) {
+                Log::debug('SyncStationEmployeesService: new agent created', [
+                    'idempresa' => $oficina->idempresa,
+                    'idoficina' => $oficina->idoficina,
+                    'idagente' => $agent->idagente,
+                ]);
                 $newEmployees->push($agent);
+            } elseif ($agent->wasChanged()) {
+                Log::debug('SyncStationEmployeesService: existing agent updated', [
+                    'idempresa' => $oficina->idempresa,
+                    'idoficina' => $oficina->idoficina,
+                    'idagente' => $agent->idagente,
+                    'changes' => $agent->getChanges(),
+                ]);
+                $updatedEmployees->push($agent);
             }
         }
 
@@ -66,12 +112,14 @@ class SyncStationEmployeesService
             'idoficina' => $oficina->idoficina,
             'pulled' => count($normalizedAgents),
             'created' => $newEmployees->count(),
+            'updated' => $updatedEmployees->count(),
             'commands' => $queuedCommands,
         ]);
 
         return [
             'pulled' => count($normalizedAgents),
             'created' => $newEmployees->count(),
+            'updated' => $updatedEmployees->count(),
             'commands' => $queuedCommands,
             'failed' => false,
         ];
@@ -96,20 +144,76 @@ class SyncStationEmployeesService
         return $queuedCommands;
     }
 
+    /**
+     * Normalize whatever shape the station API returned into a flat array of
+     * agent records. Handles: Laravel collections, plain arrays/lists,
+     * Traversable objects, stdClass objects, and "wrapper" payloads like
+     * { "status": "success", "data": [...] } under a few common key names.
+     */
     protected function normalizeAgents($agents): array
     {
         if ($agents instanceof Collection) {
-            return $agents->all();
-        }
-
-        if (is_array($agents)) {
-            return $agents;
+            return $this->normalizeAgents($agents->all());
         }
 
         if ($agents instanceof \Traversable) {
-            return iterator_to_array($agents);
+            return $this->normalizeAgents(iterator_to_array($agents));
         }
 
+        if (is_object($agents)) {
+            $agents = get_object_vars($agents);
+        }
+
+        if (!is_array($agents)) {
+            return [];
+        }
+
+        if (empty($agents)) {
+            return [];
+        }
+
+        // Plain list of agent records, e.g. [ ['idagente' => 1, ...], ... ]
+        if (array_is_list($agents)) {
+            return $agents;
+        }
+
+        // Wrapper payload, e.g. { "status": "success", "data": [...] }
+        foreach (['data', 'agentes', 'agents', 'result', 'employees'] as $key) {
+            if (isset($agents[$key])) {
+                return $this->normalizeAgents($agents[$key]);
+            }
+        }
+
+        Log::warning('SyncStationEmployeesService: unrecognized agents payload shape', [
+            'keys' => array_keys($agents),
+        ]);
+
         return [];
+    }
+
+    /**
+     * Check whether the station response signals a failure, regardless of
+     * whether it arrived as an object or an array.
+     */
+    protected function isFailedResponse($agents): bool
+    {
+        return $this->extractValue($agents, 'status') === 'failed';
+    }
+
+    /**
+     * Read a top-level key off the station response whether it's an object
+     * or an array.
+     */
+    protected function extractValue($agents, string $key)
+    {
+        if (is_object($agents)) {
+            return $agents->{$key} ?? null;
+        }
+
+        if (is_array($agents)) {
+            return $agents[$key] ?? null;
+        }
+
+        return null;
     }
 }

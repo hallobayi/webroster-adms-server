@@ -11,6 +11,13 @@ return [
     // Messages
     'pulled_successfully' => 'Empleados obtenidos exitosamente.',
     'error_pulling' => 'Error al obtener empleados del dispositivo.',
+    'pull_complete' => 'Obtención completada',
+    'pull_failed' => 'Obtención fallida',
+    'pulled' => 'Obtenidos de la estación',
+    'new_agents' => 'Agentes nuevos',
+    'updated_agents' => 'Agentes actualizados',
+    'commands_queued' => 'Comandos encolados a dispositivos',
+    'close' => 'Cerrar',
 
     // Tables
     'id_empresa' => 'ID Empresa',

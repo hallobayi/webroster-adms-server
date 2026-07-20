@@ -11,6 +11,13 @@ return [
     // Messages
     'pulled_successfully' => 'Employees pulled successfully.',
     'error_pulling' => 'Error pulling employees from device.',
+    'pull_complete' => 'Pull complete',
+    'pull_failed' => 'Pull failed',
+    'pulled' => 'Pulled from station',
+    'new_agents' => 'New agents',
+    'updated_agents' => 'Updated agents',
+    'commands_queued' => 'Device commands queued',
+    'close' => 'Close',
 
     // Tables
     'id_empresa' => 'ID Company',
