@@ -16,8 +16,17 @@ return [
     'pulled' => 'Obtenidos de la estación',
     'new_agents' => 'Agentes nuevos',
     'updated_agents' => 'Agentes actualizados',
+    'restored_agents' => 'Agentes restaurados',
+    'removed_agents' => 'Agentes marcados para eliminar',
     'commands_queued' => 'Comandos encolados a dispositivos',
     'close' => 'Cerrar',
+
+    // Removal / purge
+    'purge_removed' => 'Eliminar de dispositivos',
+    'purge_confirm' => '¿Encolar la eliminación en los dispositivos de los agentes dados de baja en esta estación?',
+    'purge_complete' => 'Eliminación encolada',
+    'purge_failed' => 'Eliminación fallida',
+    'device_deletes_queued' => 'Comandos de eliminación encolados',
 
     // Tables
     'id_empresa' => 'ID Empresa',

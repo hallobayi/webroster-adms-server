@@ -59,7 +59,7 @@ class SyncStationEmployeesCommandTest extends TestCase
             ]);
 
         $this->artisan('employees:sync-stations')
-            ->expectsOutput('Office 10/20: pulled 2, new 1, updated 0, queued 1')
+            ->expectsOutput('Office 10/20: pulled 2, new 1, updated 0, restored 0, removed 0, queued 1')
             ->assertExitCode(0);
 
         $this->assertDatabaseHas('agentes', [
@@ -118,7 +118,7 @@ class SyncStationEmployeesCommandTest extends TestCase
             ]);
 
         $this->artisan('employees:sync-stations')
-            ->expectsOutput('Office 11/21: pulled 1, new 0, updated 1, queued 0')
+            ->expectsOutput('Office 11/21: pulled 1, new 0, updated 1, restored 0, removed 0, queued 0')
             ->assertExitCode(0);
 
         $this->assertDatabaseHas('agentes', [

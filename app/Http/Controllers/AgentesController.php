@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Oficina;
 use App\Models\Agente;
 use App\Services\SyncStationEmployeesService;
+use App\Services\RemoveStationEmployeesService;
 use Illuminate\Support\Facades\Log;
 
 class AgentesController extends Controller
@@ -78,5 +79,61 @@ class AgentesController extends Controller
 		]));
 
         return redirect()->route('agentes.index');
+    }
+
+    /**
+     * Deferred device-removal step: push DATA DELETE USERINFO commands to the
+     * office's devices for every agent that was marked removed locally but not
+     * yet queued for device removal.
+     */
+    public function runPurgeRemoved(Request $request, RemoveStationEmployeesService $service)
+    {
+        $idoficina = $request->input('oficina');
+        $idempresa = $request->input('idempresa');
+
+        $oficinaQuery = Oficina::where('idoficina', $idoficina);
+        if (!empty($idempresa)) {
+            $oficinaQuery->where('idempresa', $idempresa);
+        }
+        $oficina = $oficinaQuery->first();
+
+        if (!$oficina) {
+            Log::warning('runPurgeRemoved: office not found', [
+                'idoficina' => $idoficina,
+                'idempresa' => $idempresa,
+            ]);
+
+            $request->session()->flash('purge_result', [
+                'failed' => true,
+                'message' => 'Office not found.',
+            ]);
+
+            return redirect()->route('agentes.index', [
+                'selectedOficina' => $idoficina,
+                'idempresa' => $idempresa,
+            ]);
+        }
+
+        Log::debug('runPurgeRemoved: manual purge triggered', [
+            'idoficina' => $oficina->idoficina,
+            'idempresa' => $oficina->idempresa,
+            'triggered_by' => optional($request->user())->email ?? optional($request->user())->id,
+        ]);
+
+        $result = $service->purgeOffice($oficina);
+
+        Log::info('runPurgeRemoved: manual purge finished', array_merge($result, [
+            'idoficina' => $oficina->idoficina,
+            'idempresa' => $oficina->idempresa,
+        ]));
+
+        $request->session()->flash('purge_result', array_merge($result, [
+            'oficina' => $oficina->ubicacion,
+        ]));
+
+        return redirect()->route('agentes.index', [
+            'selectedOficina' => $oficina->idoficina,
+            'idempresa' => $oficina->idempresa,
+        ]);
     }
 }

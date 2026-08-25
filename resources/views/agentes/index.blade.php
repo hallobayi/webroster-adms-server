@@ -3,7 +3,18 @@
 @section('content')
     <div class="container">
         <h2>{{ __('agentes.title') }}</h2>
-        <a href="{{ route('agentes.pull') }}" class="btn btn-primary mb-3">{{ __('agentes.pull_employees') }}</a>
+        <div class="mb-3 d-flex gap-2">
+            <a href="{{ route('agentes.pull') }}" class="btn btn-primary">{{ __('agentes.pull_employees') }}</a>
+            @if($selectedOficina)
+                <form method="POST" action="{{ route('agentes.runpurge') }}" class="d-inline"
+                      onsubmit="return confirm('{{ __('agentes.purge_confirm') }}');">
+                    @csrf
+                    <input type="hidden" name="oficina" value="{{ $selectedOficina }}">
+                    <input type="hidden" name="idempresa" value="{{ request('idempresa') }}">
+                    <button type="submit" class="btn btn-outline-danger">{{ __('agentes.purge_removed') }}</button>
+                </form>
+            @endif
+        </div>
 
         @if(session('status'))
             <div class="alert alert-success">
@@ -33,7 +44,40 @@
                                     <li>{{ __('agentes.pulled') }}: <strong>{{ $pullResult['pulled'] ?? 0 }}</strong></li>
                                     <li>{{ __('agentes.new_agents') }}: <strong>{{ $pullResult['created'] ?? 0 }}</strong></li>
                                     <li>{{ __('agentes.updated_agents') }}: <strong>{{ $pullResult['updated'] ?? 0 }}</strong></li>
+                                    <li>{{ __('agentes.restored_agents') }}: <strong>{{ $pullResult['restored'] ?? 0 }}</strong></li>
+                                    <li>{{ __('agentes.removed_agents') }}: <strong>{{ $pullResult['removed'] ?? 0 }}</strong></li>
                                     <li>{{ __('agentes.commands_queued') }}: <strong>{{ $pullResult['commands'] ?? 0 }}</strong></li>
+                                </ul>
+                            @endif
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ __('agentes.close') }}</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
+        @if(session('purge_result'))
+            @php $purgeResult = session('purge_result'); @endphp
+            <div class="modal fade" id="purgeResultModal" tabindex="-1" aria-labelledby="purgeResultModalLabel" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header {{ !empty($purgeResult['failed']) ? 'bg-danger text-white' : 'bg-success text-white' }}">
+                            <h5 class="modal-title" id="purgeResultModalLabel">
+                                {{ !empty($purgeResult['failed']) ? __('agentes.purge_failed') : __('agentes.purge_complete') }}
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            @if(!empty($purgeResult['failed']))
+                                <p class="mb-0">{{ $purgeResult['message'] ?? __('agentes.purge_failed') }}</p>
+                            @else
+                                @if(!empty($purgeResult['oficina']))
+                                    <p>{{ __('devices.oficina') }}: <strong>{{ $purgeResult['oficina'] }}</strong></p>
+                                @endif
+                                <ul class="mb-0">
+                                    <li>{{ __('agentes.removed_agents') }}: <strong>{{ $purgeResult['employees'] ?? 0 }}</strong></li>
+                                    <li>{{ __('agentes.device_deletes_queued') }}: <strong>{{ $purgeResult['commands'] ?? 0 }}</strong></li>
                                 </ul>
                             @endif
                         </div>
@@ -95,6 +139,14 @@
                 if (pullResultModalEl) {
                     var pullResultModal = new bootstrap.Modal(pullResultModalEl);
                     pullResultModal.show();
+                }
+            @endif
+
+            @if(session('purge_result'))
+                var purgeResultModalEl = document.getElementById('purgeResultModal');
+                if (purgeResultModalEl) {
+                    var purgeResultModal = new bootstrap.Modal(purgeResultModalEl);
+                    purgeResultModal.show();
                 }
             @endif
 

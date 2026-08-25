@@ -9,6 +9,9 @@ use App\Models\Command;
 use App\Models\Oficina;
 use App\Models\Attendance;
 use App\Services\PopulateEmployeesService;
+use App\Services\PullFingerprintsService;
+use App\Services\PushFingerprintsService;
+use App\Services\RemoveEmployeesService;
 
 class Device extends Model
 {
@@ -117,9 +120,75 @@ class Device extends Model
             // log the error
             \Log::error($e->getMessage());
             return 0;
-        }        
+        }
+    }
+
+    /**
+     * Queue DATA DELETE USERINFO commands for the given employees on this device.
+     * Counterpart of populate(); returns the number of commands queued.
+     */
+    public function depopulate($employees = null)
+    {
+        try {
+            $service = new RemoveEmployeesService($this);
+            return $service->run($employees);
+        } catch (\Exception $e) {
+            \Log::error($e->getMessage());
+            return 0;
+        }
     }
     
+    /**
+     * Fingerprint templates this terminal has handed back to the server.
+     */
+    public function fingerprintTemplates()
+    {
+        return $this->hasMany(FingerprintTemplate::class, 'sn', 'serial_number');
+    }
+
+    /**
+     * Ask this terminal for fingerprint templates.
+     *
+     * Bulk mode queues a single CHECK (the terminal decides what to re-upload);
+     * targeted mode queues one DATA QUERY FINGERTMP per employee per finger.
+     * Templates arrive later, on the terminal's own schedule, via /iclock/cdata.
+     *
+     * @param array<int, int>|null $fids
+     * @return int commands queued
+     */
+    public function pullFingerprints(bool $bulk = true, $employees = null, ?array $fids = null)
+    {
+        try {
+            $service = app(PullFingerprintsService::class);
+
+            return $bulk
+                ? $service->bulk($this)
+                : $service->forDevice($this, $employees, $fids);
+        } catch (\Exception $e) {
+            \Log::error('pullFingerprints failed: ' . $e->getMessage(), ['device_id' => $this->id]);
+
+            return 0;
+        }
+    }
+
+    /**
+     * Distribute stored templates to this terminal. Manual only — see
+     * PushFingerprintsService.
+     *
+     * @param array<int, string|int>|null $pins
+     * @return array{candidates: int, commands: int, skipped: int}
+     */
+    public function pushFingerprints(?array $pins = null)
+    {
+        try {
+            return app(PushFingerprintsService::class)->toDevice($this, $pins);
+        } catch (\Exception $e) {
+            \Log::error('pushFingerprints failed: ' . $e->getMessage(), ['device_id' => $this->id]);
+
+            return ['candidates' => 0, 'commands' => 0, 'skipped' => 0];
+        }
+    }
+
     /**
      * Get current time in the office's timezone
      * @return \Carbon\Carbon|null

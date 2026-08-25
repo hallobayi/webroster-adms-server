@@ -6,7 +6,10 @@ use App\Models\Command;
 use App\Models\Device;
 use App\Models\DeviceLog;
 use App\Models\Fingerprint;
+use App\Models\LogEntry;
+use App\Services\BiometricRecordParser;
 use App\Services\CommandIdService;
+use App\Services\FingerprintIngestService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -69,7 +72,10 @@ class iclockController extends Controller
                 "ResLogCount=50000\r\n" .
                 //"TransTimes=00:00;14:05\r\n" .
                 "TransInterval=4\r\n" .
-                "TransFlag=1111000000\r\n" .
+                // Positions 6/7 (EnrollFP, ChgFP) are what make the terminal
+                // upload a fingerprint template as soon as it is enrolled or
+                // changed. See config/adms.php.
+                "TransFlag=" . config('adms.trans_flag', '1111111000') . "\r\n" .
                 "TimeZone=". $timezone . "\r\n" .
                 "Realtime=1\r\n" .
                 "Encrypt=0";
@@ -84,130 +90,259 @@ class iclockController extends Controller
         }
     }
 
+    /**
+     * The terminal reports here after running a queued command:
+     *
+     *   ID=123&Return=0&CMD=DATA
+     *
+     * Return=0 means it worked; anything else is an error code. Recording this
+     * is what turns "we queued a fingerprint pull" into "the device accepted /
+     * rejected the pull", which is otherwise invisible.
+     */
     public function deviceCommand(Request $request)
     {
         Log::info('call deviceCommand', ['request' => $request->all()]);
-        //Log headers and content
-        Log::info('deviceCommand url', ['url' => json_encode($request->all())]);
         Log::info('deviceCommand content', ['data' => $request->getContent()]);
-        // save the content of the request into the Log
-        $allLog = json_encode($request->all());
 
-        Log::info('deviceCommand', ['allLog' => $allLog]);
+        try {
+            $body = $request->getContent();
+
+            // Some firmware sends the ack as the body, some as query/form params.
+            $acks = BiometricRecordParser::parseCommandAcks($body);
+
+            if ($acks === [] && $request->has('ID')) {
+                $acks = BiometricRecordParser::parseCommandAcks(
+                    http_build_query($request->all())
+                );
+            }
+
+            if ($acks === []) {
+                Log::info('deviceCommand: no parsable acknowledgement', ['data' => $body]);
+
+                return "OK";
+            }
+
+            $device = Device::where('serial_number', $request->input('SN'))->first();
+
+            foreach ($acks as $ack) {
+                $query = Command::where('command', $ack['id'])
+                    ->when($device !== null, fn ($q) => $q->where('device_id', $device->id))
+                    ->orderByDesc('id');
+
+                $command = $query->first();
+
+                if (!$command) {
+                    Log::warning('deviceCommand: ack for unknown command', [
+                        'sn' => $request->input('SN'),
+                        'ack' => $ack,
+                    ]);
+                    continue;
+                }
+
+                $succeeded = $ack['return'] === 0;
+
+                $command->forceFill([
+                    'executed_at' => $command->executed_at ?? now(),
+                    'completed_at' => $succeeded ? now() : $command->completed_at,
+                    'failed_at' => $succeeded ? $command->failed_at : now(),
+                    'response' => trim((string) $body),
+                ])->save();
+
+                Log::info('deviceCommand: command acknowledged', [
+                    'command_id' => $command->id,
+                    'cmd' => $command->command,
+                    'type' => $command->type,
+                    'return' => $ack['return'],
+                    'ok' => $succeeded,
+                ]);
+            }
+        } catch (Throwable $e) {
+            Log::error('deviceCommand', ['error' => $e->getMessage()]);
+        }
 
         return "OK";
     }
 
+    /**
+     * Everything a terminal uploads lands here: attendance punches, operation
+     * logs, and — the part that matters for biometrics — user records and
+     * fingerprint templates, whether volunteered on enrolment or sent in answer
+     * to a DATA QUERY FINGERTMP we queued earlier.
+     */
     public function receiveRecords(Request $request)
-    {      
+    {
         Log::info('call receiveRecords', ['request' => $request->all()]);
+
         $content['url'] = json_encode($request->all());
         $content['data'] = $request->getContent();
 
         DB::table('finger_log')->insert($content);
+
         try {
-            $arr = preg_split('/\\r\\n|\\r|,|\\n/', $request->getContent());
+            $sn = $request->input('SN');
+            $body = (string) $request->getContent();
+            $table = strtoupper((string) $request->input('table'));
 
-            $tot = 0;
-            //operation log
-            if($request->input('table') == "OPLOG"){
-                // $tot = count($arr) - 1;
-                foreach ($arr as $rey) {
-                    if(isset($rey)){
-                        $tot++;
-                    }
-                }
-                return "OK: ".$tot;
-            }
+            $device = Device::where('serial_number', $sn)->first();
 
-            $endpoint = parse_url($request->url(), PHP_URL_PATH);
-
-            // add to device logs
-            $data = [
-                'url' => $endpoint,
-                'data' => json_encode($request->all()),
-                'sn' => $request->input('SN'),
-                'option' => $request->input('option'),
-                'idreloj' => Device::where('serial_number', $request->input('SN'))->first()->idreloj,
-            ];
-
-            DeviceLog::create($data);
-
-            try {
-                // if data starts with FP, it's a fingerprint record
-                if (strpos($arr[0], 'FP') === 0) {
-                    // save the fingerprint data
-                    Fingerprint::create([
-                        'sn' => $request->input('SN'),
-                        'finger' => $arr[0],
-                        'fullrecord' => $request->getContent(),
-                    ]);
-                }
-            } catch (Throwable $e) {
-                Log::error('receiveRecords save fingerprint ', ['error' => $e]);
-            }
-
-            // update status device
+            // Keep last-seen fresh whatever the payload turns out to be.
             try {
                 DB::table('devices')->updateOrInsert(
-                    ['serial_number' => $request->input('SN')],
+                    ['serial_number' => $sn],
                     ['online' => now()]
                 );
             } catch (Throwable $e) {
-                Log::error('receiveRecords update device ', ['error' => $e]);
+                Log::error('receiveRecords update device ', ['error' => $e->getMessage()]);
             }
-            
-            foreach ($arr as $rey) {
-                if(empty($rey)){
-                    continue;
-                }
 
-                $data = explode("\t",$rey);
-                if(count($data) < 2){
-                    continue;
-                }
-
-                $table = $request->input('table');
-                
-                if ($table=='OPERLOG') {
-                    $timestamp = date('Y-m-d H:i:s');
-                    $employee_id = 0;
-                    // current datetime value to $stamp
-                    $stamp = null;
-                }
-                else{
-                    $stamp = $request->input('Stamp') ?? date('Y-m-d H:i:s');
-                    $timestamp = $data[1] ?? date('Y-m-d H:i:s');
-                    $employee_id = $data[0];
-                }
-                
-                $q['sn'] = $request->input('SN');
-                $q['table'] = $table;
-                $q['stamp'] = $stamp;
-                $q['employee_id'] = $employee_id;
-                $q['timestamp'] = $timestamp;
-                $device = Device::where('serial_number', $request->input('SN'))->first();
-                $q['idoficina'] = $device->oficina->idoficina ?? null;
-                $q['idempresa'] = $device->idempresa ?? null;
-                $q['status1'] = $this->validateAndFormatInteger($data[2] ?? null);
-                $q['status2'] = $this->validateAndFormatInteger($data[3] ?? null);
-                $q['status3'] = $this->validateAndFormatInteger($data[4] ?? null);
-                $q['status4'] = $this->validateAndFormatInteger($data[5] ?? null);
-                $q['status5'] = $this->validateAndFormatInteger($data[6] ?? null);
-                $q['created_at'] = now();
-                $q['updated_at'] = now();
-                if($q['table'] == 'OPERLOG'){
-                    DB::table('device_options')->insert($q);
-                }else{
-                    DB::table('attendances')->insert($q);
-                }
-                $tot++;
+            try {
+                DeviceLog::create([
+                    'url' => parse_url($request->url(), PHP_URL_PATH),
+                    'data' => json_encode($request->all()),
+                    'tgl' => now(),
+                    'sn' => $sn,
+                    'option' => $request->input('option') ?? '',
+                    // Previously dereferenced a possibly-missing device and
+                    // took the whole request down with it.
+                    'idreloj' => $device->idreloj ?? '999999',
+                ]);
+            } catch (Throwable $e) {
+                Log::error('receiveRecords device log ', ['error' => $e->getMessage()]);
             }
-            return "OK: ".$tot;
 
+            $parser = app(BiometricRecordParser::class);
+
+            if ($table === 'OPERLOG' || $table === 'OPLOG' || $parser->looksLikeBiometricPayload($body)) {
+                return $this->receiveBiometricRecords($request, $sn, $table, $body, $device, $parser);
+            }
+
+            return $this->receiveAttendanceRecords($request, $sn, $body, $device);
         } catch (Throwable $e) {
-            Log::error('receiveRecords', ['error' => $e]);
-            return "ERROR: ".$tot."\n";
+            Log::error('receiveRecords', ['error' => $e->getMessage()]);
+
+            return "ERROR: 0\n";
+        }
+    }
+
+    /**
+     * User / biometric upload (table=OPERLOG). Templates go to
+     * fingerprint_templates via FingerprintIngestService; anything else in the
+     * payload keeps its old home in device_options.
+     */
+    protected function receiveBiometricRecords(
+        Request $request,
+        ?string $sn,
+        string $table,
+        string $body,
+        ?Device $device,
+        BiometricRecordParser $parser
+    ) {
+        $result = app(FingerprintIngestService::class)->ingest($sn, $body, $device);
+
+        $lines = array_values(array_filter(
+            array_map('trim', preg_split('/\r\n|\r|\n/', $body) ?: []),
+            fn ($line) => $line !== ''
+        ));
+
+        if ($table === 'OPERLOG') {
+            foreach ($lines as $line) {
+                // Templates and user records are already stored; only the
+                // operation-log remainder belongs in device_options.
+                if ($parser->looksLikeBiometricPayload($line)) {
+                    continue;
+                }
+
+                $this->storeDeviceOption($sn, $line);
+            }
+        }
+
+        Log::info('receiveRecords: biometric payload', array_merge($result, [
+            'sn' => $sn,
+            'table' => $table,
+            'lines' => count($lines),
+        ]));
+
+        return "OK: " . count($lines);
+    }
+
+    /**
+     * Attendance punches (ATTLOG and anything not recognised as biometric).
+     */
+    protected function receiveAttendanceRecords(Request $request, ?string $sn, string $body, ?Device $device)
+    {
+        $tot = 0;
+
+        // Split on line breaks only. The old pattern also split on commas,
+        // which silently mangled any field that contained one.
+        $lines = preg_split('/\r\n|\r|\n/', $body) ?: [];
+
+        $idoficina = $device && $device->oficina ? $device->oficina->idoficina : null;
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+
+            if ($line === '') {
+                continue;
+            }
+
+            $data = explode("\t", $line);
+
+            if (count($data) < 2) {
+                continue;
+            }
+
+            DB::table('attendances')->insert([
+                'sn' => $sn,
+                'table' => $request->input('table'),
+                'stamp' => $request->input('Stamp') ?? date('Y-m-d H:i:s'),
+                'employee_id' => $data[0],
+                'timestamp' => $data[1] ?? date('Y-m-d H:i:s'),
+                'idoficina' => $idoficina,
+                'idempresa' => $device->idempresa ?? null,
+                'status1' => $this->validateAndFormatInteger($data[2] ?? null),
+                'status2' => $this->validateAndFormatInteger($data[3] ?? null),
+                'status3' => $this->validateAndFormatInteger($data[4] ?? null),
+                'status4' => $this->validateAndFormatInteger($data[5] ?? null),
+                'status5' => $this->validateAndFormatInteger($data[6] ?? null),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $tot++;
+        }
+
+        return "OK: " . $tot;
+    }
+
+    /**
+     * device_options has no oficina columns — the previous implementation
+     * inserted them anyway, so every OPERLOG payload failed on the way in.
+     */
+    protected function storeDeviceOption(?string $sn, string $line): void
+    {
+        $data = explode("\t", $line);
+
+        if (count($data) < 2) {
+            return;
+        }
+
+        try {
+            DB::table('device_options')->insert([
+                'sn' => $sn,
+                'table' => 'OPERLOG',
+                'stamp' => null,
+                'employee_id' => 0,
+                'timestamp' => date('Y-m-d H:i:s'),
+                'status1' => $this->validateAndFormatInteger($data[2] ?? null),
+                'status2' => $this->validateAndFormatInteger($data[3] ?? null),
+                'status3' => $this->validateAndFormatInteger($data[4] ?? null),
+                'status4' => $this->validateAndFormatInteger($data[5] ?? null),
+                'status5' => $this->validateAndFormatInteger($data[6] ?? null),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (Throwable $e) {
+            Log::error('storeDeviceOption', ['error' => $e->getMessage()]);
         }
     }
 
@@ -299,20 +434,38 @@ class iclockController extends Controller
 
             $endpoint = parse_url($request->url(), PHP_URL_PATH);
 
-            // add to device logs
-            $data = [
-                'url' => $endpoint,
-                'data' => json_encode($request->all()),
-                'sn' => $request->input('SN'),
-                'option' => $request->input('option'),
-            ];
-            DeviceLog::create($data);
-            Log::debug("inserted data ", $data);
+            // add to device logs — a logging failure must never stop the
+            // terminal from receiving its queued commands.
+            try {
+                $data = [
+                    'url' => $endpoint,
+                    'data' => json_encode($request->all()),
+                    'tgl' => now(),
+                    'sn' => $request->input('SN'),
+                    'option' => $request->input('option') ?? '',
+                    'idreloj' => $device->idreloj ?? '999999',
+                ];
+                DeviceLog::create($data);
+                Log::debug("inserted data ", $data);
+            } catch (Throwable $e) {
+                Log::error('getrequest device log', ['error' => $e->getMessage()]);
+            }
+
             //update last online
             $device->update(['online' => now()]);
 
+            // A fingerprint pull can queue hundreds of commands; handing them
+            // all to the terminal in one response is a good way to make it
+            // choke. Drain the queue in batches instead — it comes back every
+            // few seconds anyway.
+            $batchSize = (int) config('adms.commands_per_request', 20);
             $commands = $device->pendingCommands();
-            $cmdIdService = resolve(CommandIdService::class); 
+
+            if ($batchSize > 0 && $commands->count() > $batchSize) {
+                $commands = $commands->take($batchSize);
+            }
+
+            $cmdIdService = resolve(CommandIdService::class);
             $nextCmdId = $cmdIdService->getNextCmdId();
             Log::info('Get Request', ['nextCmdId' => $nextCmdId]);
             

@@ -16,8 +16,17 @@ return [
     'pulled' => 'Pulled from station',
     'new_agents' => 'New agents',
     'updated_agents' => 'Updated agents',
+    'restored_agents' => 'Restored agents',
+    'removed_agents' => 'Agents marked for removal',
     'commands_queued' => 'Device commands queued',
     'close' => 'Close',
+
+    // Removal / purge
+    'purge_removed' => 'Remove from devices',
+    'purge_confirm' => 'Queue device removal for agents that were dropped from this station?',
+    'purge_complete' => 'Removal queued',
+    'purge_failed' => 'Removal failed',
+    'device_deletes_queued' => 'Delete commands queued',
 
     // Tables
     'id_empresa' => 'ID Company',

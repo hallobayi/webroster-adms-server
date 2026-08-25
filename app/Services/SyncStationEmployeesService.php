@@ -65,6 +65,8 @@ class SyncStationEmployeesService
 
         $newEmployees = collect();
         $updatedEmployees = collect();
+        $restoredEmployees = collect();
+        $stationIds = [];
 
         foreach ($normalizedAgents as $agentData) {
             if (!isset($agentData['idagente'], $agentData['shortname'])) {
@@ -76,25 +78,51 @@ class SyncStationEmployeesService
                 continue;
             }
 
-            $agent = Agente::updateOrCreate(
-                ['idagente' => $agentData['idagente']],
-                [
-                    'idempresa' => $oficina->idempresa,
-                    'idoficina' => $oficina->idoficina,
-                    'idagente' => $agentData['idagente'],
-                    'shortname' => $agentData['shortname'],
-                    'fullname' => trim(($agentData['nombre'] ?? '') . ' ' . ($agentData['apellidos'] ?? '')),
-                ]
-            );
+            $stationIds[] = $agentData['idagente'];
 
-            if ($agent->wasRecentlyCreated) {
+            // Look the agent up including soft-deleted rows so an employee who was
+            // previously removed from the station and then re-added is restored in
+            // place instead of creating a duplicate row (idagente is not unique).
+            $agent = Agente::withTrashed()
+                ->where('idempresa', $oficina->idempresa)
+                ->where('idoficina', $oficina->idoficina)
+                ->firstOrNew(['idagente' => $agentData['idagente']]);
+
+            $existedBefore = $agent->exists;
+            $wasTrashed = $agent->trashed();
+
+            $agent->fill([
+                'idempresa' => $oficina->idempresa,
+                'idoficina' => $oficina->idoficina,
+                'idagente' => $agentData['idagente'],
+                'shortname' => $agentData['shortname'],
+                'fullname' => trim(($agentData['nombre'] ?? '') . ' ' . ($agentData['apellidos'] ?? '')),
+            ]);
+
+            if ($wasTrashed) {
+                // Back on the station roster: un-mark local + device removal.
+                $agent->deleted_at = null;
+                $agent->device_removal_queued_at = null;
+            }
+
+            $changed = $agent->isDirty();
+            $agent->save();
+
+            if (!$existedBefore) {
                 Log::debug('SyncStationEmployeesService: new agent created', [
                     'idempresa' => $oficina->idempresa,
                     'idoficina' => $oficina->idoficina,
                     'idagente' => $agent->idagente,
                 ]);
                 $newEmployees->push($agent);
-            } elseif ($agent->wasChanged()) {
+            } elseif ($wasTrashed) {
+                Log::debug('SyncStationEmployeesService: agent restored from removal', [
+                    'idempresa' => $oficina->idempresa,
+                    'idoficina' => $oficina->idoficina,
+                    'idagente' => $agent->idagente,
+                ]);
+                $restoredEmployees->push($agent);
+            } elseif ($changed) {
                 Log::debug('SyncStationEmployeesService: existing agent updated', [
                     'idempresa' => $oficina->idempresa,
                     'idoficina' => $oficina->idoficina,
@@ -105,6 +133,8 @@ class SyncStationEmployeesService
             }
         }
 
+        $removedEmployees = $this->markRemovedAgents($oficina, $stationIds);
+
         $queuedCommands = $this->queueNewEmployeesForDevices($oficina, $newEmployees);
 
         Log::info('SyncStationEmployeesService completed', [
@@ -113,6 +143,8 @@ class SyncStationEmployeesService
             'pulled' => count($normalizedAgents),
             'created' => $newEmployees->count(),
             'updated' => $updatedEmployees->count(),
+            'restored' => $restoredEmployees->count(),
+            'removed' => $removedEmployees->count(),
             'commands' => $queuedCommands,
         ]);
 
@@ -120,9 +152,51 @@ class SyncStationEmployeesService
             'pulled' => count($normalizedAgents),
             'created' => $newEmployees->count(),
             'updated' => $updatedEmployees->count(),
+            'restored' => $restoredEmployees->count(),
+            'removed' => $removedEmployees->count(),
             'commands' => $queuedCommands,
             'failed' => false,
         ];
+    }
+
+    /**
+     * Mark local agents that no longer appear in the station roster as removed.
+     *
+     * This is a soft delete only ("marked to remove locally"); the actual
+     * DATA DELETE USERINFO command is pushed to devices in a separate, deferred
+     * step (see RemoveStationEmployeesService / AgentesController::runPurgeRemoved).
+     *
+     * Safety guard: if the station returned an empty roster we do NOT treat that
+     * as "every employee was removed" — that is almost always a transient station
+     * error, and auto-purging an entire office would be destructive.
+     */
+    protected function markRemovedAgents(Oficina $oficina, array $stationIds): Collection
+    {
+        if (empty($stationIds)) {
+            Log::warning('SyncStationEmployeesService: empty station roster, skipping removal reconciliation', [
+                'idempresa' => $oficina->idempresa,
+                'idoficina' => $oficina->idoficina,
+            ]);
+
+            return collect();
+        }
+
+        $toRemove = Agente::where('idempresa', $oficina->idempresa)
+            ->where('idoficina', $oficina->idoficina)
+            ->whereNotIn('idagente', $stationIds)
+            ->get();
+
+        foreach ($toRemove as $agent) {
+            $agent->delete(); // soft delete -> sets deleted_at
+
+            Log::info('SyncStationEmployeesService: agent marked for removal', [
+                'idempresa' => $oficina->idempresa,
+                'idoficina' => $oficina->idoficina,
+                'idagente' => $agent->idagente,
+            ]);
+        }
+
+        return $toRemove;
     }
 
     protected function queueNewEmployeesForDevices(Oficina $oficina, Collection $newEmployees): int
