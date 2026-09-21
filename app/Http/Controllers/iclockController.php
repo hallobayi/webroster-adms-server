@@ -55,10 +55,9 @@ class iclockController extends Controller
                 Log::error('handshake', ['error' => 'Device not found']);
                 return "ERROR: Device not found";
             }
-            $cityTimezone = $device->oficina ? $device->oficina->timezone : 'America/Mexico_City';
-            $timezone = $device->oficina ? $device->oficina->timezone : 'America/Mexico_City';
+            $cityTimezone = $this->resolveTimezone($device->oficina->timezone ?? null);
+            $timezone = $cityTimezone;
 
-            // set time() to gmt -6
             $date = Carbon::now($cityTimezone);
             $format = 'Y-m-d H:i:s';
             $localTime = $date->format($format);
@@ -478,10 +477,7 @@ class iclockController extends Controller
             $nextCmdId = $cmdIdService->getNextCmdId();
             Log::info('Get Request', ['nextCmdId' => $nextCmdId]);
             
-            $timezone = 'America/Mexico_City'; // Default fallback
-            if ($device && $device->oficina && $device->oficina->timezone) {
-                $timezone = $device->oficina->timezone;
-            }
+            $timezone = $this->resolveTimezone($device->oficina->timezone ?? null);
 
             $intDateTime = $this->oldEncodeTime(
                 Carbon::now($timezone)->year,
@@ -600,6 +596,39 @@ class iclockController extends Controller
 
         return response()->json(['status' => 'OK']);
     }
+    /**
+     * Resolve a timezone to something PHP/Carbon will actually accept.
+     *
+     * Falls back to the application timezone (config/app.php) instead of a
+     * hardcoded city, and tolerates a bad value stored in oficinas.timezone:
+     * strings such as "UTC+7" are rejected by PHP with
+     * Carbon\Exceptions\InvalidTimeZoneException, which would otherwise take
+     * the whole handshake down and leave the terminal without its config.
+     */
+    private function resolveTimezone(?string $candidate): string
+    {
+        $fallback = config('app.timezone', 'UTC');
+
+        $candidate = trim((string) $candidate);
+
+        if ($candidate === '') {
+            return $fallback;
+        }
+
+        try {
+            new \DateTimeZone($candidate);
+        } catch (Throwable $e) {
+            Log::warning('resolveTimezone: invalid timezone, falling back to app timezone', [
+                'candidate' => $candidate,
+                'fallback' => $fallback,
+            ]);
+
+            return $fallback;
+        }
+
+        return $candidate;
+    }
+
     private function validateAndFormatInteger($value)
     {
         return isset($value) && $value !== '' ? (int)$value : null;

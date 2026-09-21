@@ -232,7 +232,7 @@ class DeviceController extends Controller
 		$oficina->token = $request->input('token');
         $oficina->iatacode = $request->input('iatacode');
         $oficina->city_timezone = $request->input('city_timezone');
-        $oficina->timezone = $request->input('timezone');
+        $oficina->timezone = $this->normalizeTimezone($request->input('timezone'));
         $oficina->save();
 
         return redirect()->route('devices.oficinas')->with('success', 'Oficina creada correctamente');
@@ -261,11 +261,48 @@ class DeviceController extends Controller
         $oficina->public_url = $request->input('public_url');
 		$oficina->token = $request->input('token');
         $oficina->iatacode = $request->input('iatacode');
-        $oficina->timezone = $request->input('timezone'); 
+        $oficina->timezone = $this->normalizeTimezone($request->input('timezone'));
 
         $oficina->save();
 
         return redirect()->route('devices.oficinas')->with('success', 'Oficina actualizada correctamente');
+    }
+
+
+    /**
+     * Validate an office timezone before it reaches the database.
+     *
+     * PHP and Carbon only accept IANA identifiers ("Asia/Jakarta") or an
+     * offset written as "+07:00". Offset-style strings such as "UTC+7",
+     * "UTC+07:00" or a value with a stray space ("Asia/Jakarta ") are
+     * rejected with Carbon\Exceptions\InvalidTimeZoneException.
+     *
+     * That exception used to surface only later, in iclockController::handshake()
+     * and in every attendance filter that reads the office timezone — so a typo
+     * here silently broke the device handshake instead of showing a form error.
+     * Reject it at the door instead.
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    private function normalizeTimezone(?string $value): ?string
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            new \DateTimeZone($value);
+        } catch (\Throwable $e) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'timezone' => "Zona horaria no válida: '{$value}'. Usa un identificador IANA, "
+                    . "por ejemplo Asia/Jakarta (UTC+7) o America/Mexico_City (UTC-6). "
+                    . "No se aceptan formatos como UTC+7.",
+            ]);
+        }
+
+        return $value;
     }
 
 
