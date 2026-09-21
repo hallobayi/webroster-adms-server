@@ -29,10 +29,18 @@ Attendence Log
 
 Before you begin, ensure you have the following installed on your system:
 
--   PHP >= 8.0
--   Composer
+-   PHP >= 8.2 (Laravel 12 requirement)
+-   Composer 2.x
 -   MySQL or any other supported database
 -   Web server (Apache, Nginx, etc.)
+
+> **Upgrading from Laravel 10?** The framework has been upgraded to
+> **Laravel 12** (see [Framework version](#-framework-version)). The
+> application skeleton is unchanged — Laravel 11/12 still support the
+> classic Laravel 10 structure, so no `bootstrap/app.php` rewrite was
+> needed. Only the dependency constraints and a handful of call sites
+> changed. See [Bugs found during the upgrade](#-bugs-found-during-the-upgrade)
+> for the pre-existing issues that surfaced.
 
 ### 📋 Steps
 
@@ -87,6 +95,72 @@ Before you begin, ensure you have the following installed on your system:
 ### 📡 Monitoring Device Status
 
 You can monitor the status of devices by querying the `devices` table where the `online` field indicates the last time the device was online.
+
+## 🧱 Framework version
+
+| Component          | Version    |
+| ------------------ | ---------- |
+| Laravel Framework  | `^12.0`    |
+| PHP                | `^8.2`     |
+| Laravel Sanctum    | `^4.0`     |
+| PHPUnit            | `^11.0`    |
+| Carbon (via Laravel) | `^3.0`   |
+
+Dependency resolution is pinned to PHP 8.2 via `config.platform.php` in
+`composer.json`, so `composer update` always produces a tree that runs on
+the same PHP version used by CI and production. This matters because
+newer Symfony releases (8.x) require PHP >= 8.4.1 and would otherwise be
+pulled in automatically.
+
+## 🐞 Bugs found during the upgrade
+
+Two **pre-existing** issues were uncovered while upgrading from Laravel 10.
+Neither is caused by the upgrade itself, but both had to be handled.
+
+### 1. SQLite foreign-key mismatch on `attendances`
+
+The schema declares `attendances.idoficina -> oficinas.idoficina`, but
+`oficinas.idoficina` is only **indexed, not unique**. MySQL accepts a
+foreign key that points at a non-unique indexed column; SQLite does not
+and fails on insert with:
+
+```
+SQLSTATE[HY000]: General error: 1 foreign key mismatch - "attendances" referencing "oficinas"
+```
+
+Laravel 12 now actually applies that constraint on SQLite, which broke
+`PullFingerprintsTest::test_attendance_uploads_are_unaffected`.
+
+**Resolution:** the production database is MySQL, so the schema is left
+untouched. Instead `phpunit.xml` sets:
+
+```xml
+<env name="DB_FOREIGN_KEYS" value="false"/>
+```
+
+> ⚠️ Do not "fix" this by adding a unique index to `oficinas.idoficina`
+> without checking production data first. `storeOficina()` performs no
+> uniqueness validation, so duplicate `idoficina` values may already
+> exist in the live database.
+
+### 2. Carbon 3 `diffIn*()` now returns a signed value
+
+Carbon 3 (pulled in by Laravel 12) changed `diffInMinutes()` and friends
+from returning an **unsigned** value to a **signed float**, and flipped
+the `$absolute` parameter default from `true` to `false`. Code that
+relied on the old behaviour — e.g. `if ($diff > 20)` — would silently
+invert when the second argument is earlier than the first.
+
+**Resolution:** every `diffIn*()` comparison was wrapped in `abs()` to
+preserve the pre-upgrade meaning. Affected call sites:
+
+- `app/Models/Device.php`
+- `app/Console/Commands/MonitorDesfases.php`
+- `app/Console/Commands/PullFingerprints.php`
+- `app/Http/Controllers/DeviceController.php`
+- `resources/views/devices/{attendance,fingerdata,index,monitor}.blade.php`
+
+Keep this in mind for any new code that compares timestamps.
 
 ## 📮 Postman Collection
 
