@@ -15,6 +15,9 @@ use App\Models\Oficina;
 use App\Models\Attendance;
 use App\Models\Command;
 use App\Models\FingerLog;
+use App\Models\FingerprintTemplate;
+use App\Services\PullFingerprintsService;
+use App\Services\PushFingerprintsService;
 use DB;
 
 class DeviceController extends Controller
@@ -61,20 +64,149 @@ class DeviceController extends Controller
         return view('devices.log', compact('deviceLogs', 'title'));
     }
 
-    public function fingerprints(Request $request){
-        $title = "Fingerprints captured";
-        $deviceLogs = FingerLog::where('data', 'like', '%FP PIN%')
-            ->orderBy('updated_at', 'ASC')
-            ->paginate(40)
-            ->through(function ($log) {
-                preg_match('/FP PIN=(\d+)/', $log->data, $matches);
-                $log->idagente = $matches[1] ?? null; // Extracted FP PIN value
-                $data = json_decode($log->url);
-                $log->employee = Agente::where('idagente', $log->idagente)->first();
-                $log->device = Device::where('serial_number', $data->SN)->first();
-                return $log;
+    /**
+     * Templates actually captured from the terminals, one row per employee
+     * finger per device.
+     *
+     * This used to scrape `finger_log` with a LIKE '%FP PIN%' — a raw request
+     * log — because there was nowhere else the templates were being kept.
+     * They now have a table of their own.
+     */
+    public function fingerprints(Request $request)
+    {
+        $title = __('devices.fingerprints_captured');
+
+        $selectedOficina = $request->query('selectedOficina');
+        $pin = $request->query('pin');
+
+        $templates = FingerprintTemplate::query()
+            ->when($selectedOficina, fn ($q) => $q->where('idoficina', $selectedOficina))
+            ->when($pin, fn ($q) => $q->where('pin', $pin))
+            ->orderByDesc('captured_at')
+            ->orderBy('pin')
+            ->orderBy('fid')
+            ->paginate(50)
+            ->appends($request->except('page'))
+            ->through(function (FingerprintTemplate $template) {
+                $template->employee = Agente::where('idagente', $template->pin)
+                    ->where('idempresa', $template->idempresa)
+                    ->where('idoficina', $template->idoficina)
+                    ->first();
+                $template->deviceRow = Device::where('serial_number', $template->sn)->first();
+
+                return $template;
             });
-        return view('devices.fingerprints', compact('deviceLogs','title'));
+
+        $oficinas = Oficina::all();
+
+        return view('devices.fingerprints', compact('templates', 'title', 'oficinas', 'selectedOficina', 'pin'));
+    }
+
+    /**
+     * Form for pulling fingerprint templates off the terminals.
+     */
+    public function retrieveFingerData(Request $request)
+    {
+        $title = __('devices.pull_fingerprints');
+        $devices = Device::orderBy('idoficina')->get();
+        $oficinas = Oficina::all();
+
+        return view('devices.fingerdata', compact('title', 'devices', 'oficinas'));
+    }
+
+    /**
+     * Queue the pull. Nothing here waits for templates: the terminal answers
+     * on its own polling cycle, minutes later, into /iclock/cdata.
+     */
+    public function runRetrieveFingerData(Request $request, PullFingerprintsService $service)
+    {
+        $mode = $request->input('mode', 'bulk');
+        $deviceId = $request->input('device');
+        $pin = trim((string) $request->input('pin'));
+
+        $device = Device::find($deviceId);
+
+        if (!$device) {
+            return redirect()->route('devices.retrieveFingerData')
+                ->with('error', __('devices.device_not_found'));
+        }
+
+        if ($mode === 'pin' && $pin !== '') {
+            $queued = $service->forPin($device, $pin);
+        } elseif ($mode === 'roster') {
+            $queued = $service->forDevice($device);
+        } else {
+            $queued = $service->bulk($device);
+        }
+
+        Log::info('runRetrieveFingerData', [
+            'device_id' => $device->id,
+            'mode' => $mode,
+            'pin' => $pin ?: null,
+            'commands' => $queued,
+            'triggered_by' => optional($request->user())->email ?? optional($request->user())->id,
+        ]);
+
+        if ($queued === 0) {
+            return redirect()->route('devices.retrieveFingerData')
+                ->with('error', __('devices.pull_nothing_queued'));
+        }
+
+        return redirect()->route('devices.retrieveFingerData')
+            ->with('success', __('devices.pull_queued', ['count' => $queued, 'device' => $device->name ?: $device->serial_number]));
+    }
+
+    /**
+     * One-click bulk pull from the device list.
+     */
+    public function pullFingerprints(Request $request, $id, PullFingerprintsService $service)
+    {
+        $device = Device::find($id);
+
+        if (!$device) {
+            return redirect()->route('devices.index')->with('error', __('devices.device_not_found'));
+        }
+
+        $queued = $service->bulk($device);
+
+        return redirect()->route('devices.index')->with(
+            $queued > 0 ? 'success' : 'error',
+            $queued > 0
+                ? __('devices.pull_queued', ['count' => $queued, 'device' => $device->name ?: $device->serial_number])
+                : __('devices.pull_nothing_queued')
+        );
+    }
+
+    /**
+     * Distribute stored templates to a terminal. Manual on purpose — this
+     * rewrites biometric data on a live device, so it never runs as a side
+     * effect of a roster sync.
+     */
+    public function pushFingerprints(Request $request, $id, PushFingerprintsService $service)
+    {
+        $device = Device::find($id);
+
+        if (!$device) {
+            return redirect()->route('devices.index')->with('error', __('devices.device_not_found'));
+        }
+
+        $pins = $request->filled('pins')
+            ? array_filter(array_map('trim', explode(',', (string) $request->input('pins'))))
+            : null;
+
+        $result = $service->toDevice($device, $pins);
+
+        Log::info('pushFingerprints', array_merge($result, [
+            'device_id' => $device->id,
+            'triggered_by' => optional($request->user())->email ?? optional($request->user())->id,
+        ]));
+
+        return redirect()->back()->with(
+            $result['commands'] > 0 ? 'success' : 'error',
+            $result['commands'] > 0
+                ? __('devices.push_queued', ['count' => $result['commands'], 'device' => $device->name ?: $device->serial_number])
+                : __('devices.push_nothing_queued', ['skipped' => $result['skipped']])
+        );
     }
 
     // get oficinas list

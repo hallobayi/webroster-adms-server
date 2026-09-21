@@ -11,6 +11,7 @@ return [
     'finger_log' => 'Finger Log',
     'fingerprints' => 'Fingerprints',
     'webhooks' => 'Webhooks',
+    'pull_fingerprints' => 'Pull Fingerprints',
     'logout' => 'Logout',
     'login' => 'Login',
     'registration' => 'Registration',

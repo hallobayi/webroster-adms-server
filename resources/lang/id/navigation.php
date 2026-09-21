@@ -11,6 +11,7 @@ return [
     'finger_log' => 'Log Sidik Jari',
     'fingerprints' => 'Sidik Jari',
     'webhooks' => 'Webhook',
+    'pull_fingerprints' => 'Tarik Sidik Jari',
     'logout' => 'Keluar',
     'login' => 'Masuk',
     'registration' => 'Pendaftaran',
