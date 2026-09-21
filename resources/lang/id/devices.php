@@ -2,6 +2,7 @@
 
 return [
     'title' => 'Perangkat',
+    'index_title' => 'Perangkat biometrik',
     'create_device' => 'Buat Perangkat',
     'edit_device' => 'Edit Perangkat',
     'monitor_status' => 'Status Monitor',
@@ -113,4 +114,25 @@ return [
     'reports_per_hour' => 'Laporan per jam',
     'reports_per_day' => 'Laporan per hari',
     'chart_reports' => 'Jumlah laporan',
+
+    // Pesan respons
+    'error_loading_monitor' => 'Gagal memuat monitor: :error',
+    'no_devices_for_office' => 'Tidak ada perangkat ditemukan untuk kantor ini',
+    'delete_command_queued' => 'Perintah menghapus karyawan :pin dikirim ke :count perangkat.',
+    'error_sending_delete_command' => 'Gagal mengirim perintah hapus',
+    'attendance_updated_successfully' => 'Data kehadiran berhasil diperbarui',
+    'attendance_record_not_found' => 'Data tidak ditemukan',
+    'attendance_error_no_response' => 'Gagal memproses data kehadiran: tidak ada respons dari API',
+    'attendance_error_processing' => 'Gagal memproses data kehadiran',
+    'attendance_error_failed_status' => 'Gagal memproses data kehadiran: :reason',
+    'attendance_status_failed' => 'status gagal',
+    'attendance_fixed_successfully' => 'Data kehadiran berhasil diperbaiki',
+    'attendance_api_error' => 'Permintaan API gagal dengan status: :status',
+    'api_config_missing' => 'Konfigurasi API tidak ditemukan.',
+    'value_error' => 'Galat',
+    'value_not_available' => 'N/A',
+
+    'invalid_timezone' => "Zona waktu tidak valid: ':value'. Gunakan pengenal IANA, "
+        . "misalnya Asia/Jakarta (UTC+7) atau America/Mexico_City (UTC-6). "
+        . "Format seperti UTC+7 tidak diterima.",
 ];

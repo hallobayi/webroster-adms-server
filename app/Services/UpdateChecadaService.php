@@ -25,7 +25,7 @@ class UpdateChecadaService
         $this->baseUrls = config('services.apis');
         
         if (!$this->baseUrls) {
-            throw new \Exception("API configuration for not found.");
+            throw new \Exception(__('devices.api_config_missing'));
         }
     }
 
@@ -70,7 +70,7 @@ class UpdateChecadaService
                 'data' => $response->json()
             ]);
             if ($response->failed()) {
-                throw new \Exception("API request failed with status: " . $response->status());
+                throw new \Exception(__('devices.attendance_api_error', ['status' => $response->status()]));
             }
             return (object)$response->json();
         } catch (\Exception $e) {

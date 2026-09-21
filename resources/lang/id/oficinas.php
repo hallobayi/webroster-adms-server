@@ -26,4 +26,7 @@ return [
     'error_creating' => 'Gagal membuat kantor.',
     'error_updating' => 'Gagal memperbarui kantor.',
     'error_deleting' => 'Gagal menghapus kantor.',
+    'not_found' => 'Kantor tidak ditemukan',
+    'none_configured' => 'Belum ada kantor yang dikonfigurasi.',
+    'not_found_for_checkin' => 'Kantor tidak ditemukan untuk mengirim data kehadiran.',
 ];

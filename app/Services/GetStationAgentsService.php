@@ -67,7 +67,10 @@ class GetStationAgentsService
 
                 return (object) [
                     'status' => 'failed',
-                    'message' => 'HTTP ' . $response->status() . ': ' . $response->body(),
+                    'message' => __('agentes.station_http_error', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]),
                 ];
             }
 
@@ -81,7 +84,7 @@ class GetStationAgentsService
 
                 return (object) [
                     'status' => 'failed',
-                    'message' => 'Unexpected or empty response body from station.',
+                    'message' => __('agentes.station_unexpected_body'),
                 ];
             }
 

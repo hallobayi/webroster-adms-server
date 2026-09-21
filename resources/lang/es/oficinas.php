@@ -26,4 +26,7 @@ return [
     'error_creating' => 'Error al crear oficina.',
     'error_updating' => 'Error al actualizar oficina.',
     'error_deleting' => 'Error al eliminar oficina.',
+    'not_found' => 'Oficina no encontrada',
+    'none_configured' => 'No hay oficinas configuradas.',
+    'not_found_for_checkin' => 'Oficina no encontrada para enviar la checada.',
 ];

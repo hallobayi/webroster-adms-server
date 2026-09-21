@@ -36,4 +36,9 @@ return [
     'fullname' => 'Fullname',
     'last_update' => 'Last Update',
     'run_request' => 'Ejecutar Solicitud',
+
+    // Mensajes de respuesta
+    'office_not_found' => 'Oficina no encontrada.',
+    'station_unexpected_body' => 'Respuesta inesperada o vacía del servidor de estación.',
+    'station_http_error' => 'HTTP :status: :body',
 ];

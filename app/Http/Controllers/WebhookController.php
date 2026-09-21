@@ -34,14 +34,14 @@ class WebhookController extends Controller
             'url' => $request->input('url'),
         ]);
 
-        return redirect()->route('webhooks.index')->with('success', 'Webhook created successfully');
+        return redirect()->route('webhooks.index')->with('success', __('webhooks.created_successfully'));
     }
 
     public function edit($id)
     {
         $webhook = Webhook::find($id);
         if (!$webhook) {
-            return redirect()->route('webhooks.index')->with('error', 'Webhook not found');
+            return redirect()->route('webhooks.index')->with('error', __('webhooks.not_found'));
         }
         $title = __('webhooks.edit_webhook');
         $devices = Device::orderBy('serial_number')->get();
@@ -52,7 +52,7 @@ class WebhookController extends Controller
     {
         $webhook = Webhook::find($id);
         if (!$webhook) {
-            return redirect()->route('webhooks.index')->with('error', 'Webhook not found');
+            return redirect()->route('webhooks.index')->with('error', __('webhooks.not_found'));
         }
 
         $request->validate([
@@ -64,16 +64,16 @@ class WebhookController extends Controller
         $webhook->url = $request->input('url');
         $webhook->save();
 
-        return redirect()->route('webhooks.index')->with('success', 'Webhook updated successfully');
+        return redirect()->route('webhooks.index')->with('success', __('webhooks.updated_successfully'));
     }
 
     public function delete(Request $request)
     {
         $webhook = Webhook::find($request->input('id'));
         if (!$webhook) {
-            return redirect()->route('webhooks.index')->with('error', 'Webhook not found');
+            return redirect()->route('webhooks.index')->with('error', __('webhooks.not_found'));
         }
         $webhook->delete();
-        return redirect()->route('webhooks.index')->with('success', 'Webhook deleted successfully');
+        return redirect()->route('webhooks.index')->with('success', __('webhooks.deleted_successfully'));
     }
 }

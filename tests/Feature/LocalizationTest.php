@@ -168,4 +168,225 @@ class LocalizationTest extends TestCase
         $es->assertSee('Obtener Empleados', false);
         $es->assertSee('Ejecutar Solicitud', false);
     }
+
+    // -----------------------------------------------------------------------
+    // Response messages (flash / JSON), not just the static labels.
+    //
+    // The controllers used to answer with Spanish literals, so an English or
+    // Indonesian user got Spanish confirmations. Every message now goes
+    // through __(), and these tests pin one message per locale for each
+    // entry point that used to be hardcoded.
+    // -----------------------------------------------------------------------
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function deviceUpdateErrorMessages(): array
+    {
+        return [
+            'en' => ['en', 'Oficina not found'],
+            'es' => ['es', 'Oficina no encontrada'],
+            'id' => ['id', 'Kantor tidak ditemukan'],
+        ];
+    }
+
+    #[DataProvider('deviceUpdateErrorMessages')]
+    public function test_device_update_error_message_follows_the_locale(string $locale, string $expected): void
+    {
+        $this->office();
+        $device = $this->device();
+
+        $response = $this->actingUser()->post("/devices/{$device->id}/update?lang={$locale}", [
+            'idoficina' => 999, // no such office
+        ]);
+
+        $response->assertRedirect(route('devices.index'));
+        $response->assertSessionHas('error', $expected);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function deviceUpdateSuccessMessages(): array
+    {
+        return [
+            'en' => ['en', 'Device updated successfully.'],
+            'es' => ['es', 'Dispositivo actualizado exitosamente.'],
+            'id' => ['id', 'Perangkat berhasil diperbarui.'],
+        ];
+    }
+
+    #[DataProvider('deviceUpdateSuccessMessages')]
+    public function test_device_update_success_message_follows_the_locale(string $locale, string $expected): void
+    {
+        $this->office();
+        $device = $this->device();
+
+        $response = $this->actingUser()->post("/devices/{$device->id}/update?lang={$locale}", [
+            'idoficina' => 2,
+            'name' => 'Halobayi Buaran',
+            'serial_number' => 'SN-1',
+            'idreloj' => '1',
+        ]);
+
+        $response->assertRedirect(route('devices.index'));
+        $response->assertSessionHas('success', $expected);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function oficinaStoreMessages(): array
+    {
+        return [
+            'en' => ['en', 'Oficina created successfully.'],
+            'es' => ['es', 'Oficina creada exitosamente.'],
+            'id' => ['id', 'Kantor berhasil dibuat.'],
+        ];
+    }
+
+    #[DataProvider('oficinaStoreMessages')]
+    public function test_oficina_store_message_follows_the_locale(string $locale, string $expected): void
+    {
+        $response = $this->actingUser()->post("/oficinas/store?lang={$locale}", [
+            'idempresa' => 1,
+            'idoficina' => 5,
+            'ubicacion' => 'Merida',
+            'public_url' => 'https://station.test',
+            'token' => 'token',
+            'iatacode' => 'MID',
+            'city_timezone' => 'America/Merida',
+            'timezone' => 'America/Merida',
+        ]);
+
+        $response->assertRedirect(route('devices.oficinas'));
+        $response->assertSessionHas('success', $expected);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function webhookStoreMessages(): array
+    {
+        return [
+            'en' => ['en', 'Webhook created successfully'],
+            'es' => ['es', 'Webhook creado correctamente'],
+            'id' => ['id', 'Webhook berhasil dibuat'],
+        ];
+    }
+
+    #[DataProvider('webhookStoreMessages')]
+    public function test_webhook_store_message_follows_the_locale(string $locale, string $expected): void
+    {
+        $this->office();
+        $device = $this->device();
+
+        $response = $this->actingUser()->post("/webhooks/store?lang={$locale}", [
+            'device_id' => $device->id,
+            'url' => 'https://example.test/hook',
+        ]);
+
+        $response->assertRedirect(route('webhooks.index'));
+        $response->assertSessionHas('success', $expected);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function noDevicesForOfficeMessages(): array
+    {
+        return [
+            'en' => ['en', 'No devices found for this office'],
+            'es' => ['es', 'No se encontraron dispositivos para esta oficina'],
+            'id' => ['id', 'Tidak ada perangkat ditemukan untuk kantor ini'],
+        ];
+    }
+
+    #[DataProvider('noDevicesForOfficeMessages')]
+    public function test_delete_employee_without_devices_message_follows_the_locale(string $locale, string $expected): void
+    {
+        $this->office();
+
+        $response = $this->actingUser()->post("/devices/delete/employee?lang={$locale}", [
+            'idagente' => '123',
+            'oficina' => 99, // no devices belong to this office
+        ]);
+
+        $response->assertSessionHas('error', $expected);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function loginFailureMessages(): array
+    {
+        return [
+            'en' => ['en', 'Email or password is incorrect.'],
+            'es' => ['es', 'El correo o la contraseña son incorrectos.'],
+            'id' => ['id', 'Email atau kata sandi salah.'],
+        ];
+    }
+
+    #[DataProvider('loginFailureMessages')]
+    public function test_login_failure_message_follows_the_locale(string $locale, string $expected): void
+    {
+        User::factory()->create(['email' => 'known@example.com']);
+
+        $response = $this->post("/login-user?lang={$locale}", [
+            'email' => 'known@example.com',
+            // 10 chars: the rule is min:8|max:12, so this reaches the
+            // credential check instead of failing validation first.
+            'password' => 'wrongpass1',
+        ]);
+
+        $response->assertSessionHas('fail', $expected);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function loginRequiredMessages(): array
+    {
+        return [
+            'en' => ['en', 'You have to log in first.'],
+            'es' => ['es', 'Debe iniciar sesión primero.'],
+            'id' => ['id', 'Anda harus masuk terlebih dahulu.'],
+        ];
+    }
+
+    #[DataProvider('loginRequiredMessages')]
+    public function test_guest_is_told_to_log_in_in_the_active_locale(string $locale, string $expected): void
+    {
+        $response = $this->get("/registration?lang={$locale}");
+
+        $response->assertRedirect('login');
+        $response->assertSessionHas('fail', $expected);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public static function attendanceNotFoundMessages(): array
+    {
+        return [
+            'en' => ['en', 'Record not found'],
+            'es' => ['es', 'Registro no encontrado'],
+            'id' => ['id', 'Data tidak ditemukan'],
+        ];
+    }
+
+    #[DataProvider('attendanceNotFoundMessages')]
+    public function test_fix_attendance_json_message_follows_the_locale(string $locale, string $expected): void
+    {
+        $this->office();
+
+        $response = $this->actingUser()
+            ->getJson("/devices/retrieve/attendance/fix/999999?lang={$locale}");
+
+        $response->assertNotFound();
+        $response->assertJson([
+            'success' => false,
+            'message' => $expected,
+        ]);
+    }
 }

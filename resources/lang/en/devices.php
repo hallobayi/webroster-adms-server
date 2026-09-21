@@ -2,6 +2,7 @@
 
 return [
     'title' => 'Devices',
+    'index_title' => 'Biometric Devices',
     'create_device' => 'Create Device',
     'edit_device' => 'Edit Device',
     'monitor_status' => 'Monitor Status',
@@ -113,4 +114,25 @@ return [
     'reports_per_hour' => 'Reports per Hour',
     'reports_per_day' => 'Reports per Day',
     'chart_reports' => 'Number of Reports',
+
+    // Response messages
+    'error_loading_monitor' => 'Error loading monitor: :error',
+    'no_devices_for_office' => 'No devices found for this office',
+    'delete_command_queued' => 'Command to delete user :pin sent to :count device(s).',
+    'error_sending_delete_command' => 'Error sending delete command',
+    'attendance_updated_successfully' => 'Attendance record updated successfully',
+    'attendance_record_not_found' => 'Record not found',
+    'attendance_error_no_response' => 'Error processing the attendance record: no response from the API',
+    'attendance_error_processing' => 'Error processing the attendance record',
+    'attendance_error_failed_status' => 'Error processing the attendance record: :reason',
+    'attendance_status_failed' => 'failed status',
+    'attendance_fixed_successfully' => 'Attendance record fixed successfully',
+    'attendance_api_error' => 'API request failed with status: :status',
+    'api_config_missing' => 'API configuration not found.',
+    'value_error' => 'Error',
+    'value_not_available' => 'N/A',
+
+    'invalid_timezone' => "Invalid timezone: ':value'. Use an IANA identifier, "
+        . "for example Asia/Jakarta (UTC+7) or America/Mexico_City (UTC-6). "
+        . "Formats like UTC+7 are not accepted.",
 ];

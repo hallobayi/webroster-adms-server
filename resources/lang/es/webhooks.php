@@ -14,4 +14,10 @@ return [
     // Table / messages
     'updated' => 'Actualizado',
     'confirm_delete' => '¿Está seguro de que desea eliminar este webhook?',
+
+    // Mensajes de respuesta
+    'created_successfully' => 'Webhook creado correctamente',
+    'updated_successfully' => 'Webhook actualizado correctamente',
+    'deleted_successfully' => 'Webhook eliminado correctamente',
+    'not_found' => 'Webhook no encontrado',
 ];

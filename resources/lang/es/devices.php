@@ -2,6 +2,7 @@
 
 return [
     'title' => 'Dispositivos',
+    'index_title' => 'Dispositivos biométricos',
     'create_device' => 'Crear Dispositivo',
     'edit_device' => 'Editar Dispositivo',
     'monitor_status' => 'Estado del Monitor',
@@ -113,4 +114,25 @@ return [
     'reports_per_hour' => 'Reportes por hora',
     'reports_per_day' => 'Reportes por día',
     'chart_reports' => 'Número de reportes',
+
+    // Mensajes de respuesta
+    'error_loading_monitor' => 'Error al cargar el monitor: :error',
+    'no_devices_for_office' => 'No se encontraron dispositivos para esta oficina',
+    'delete_command_queued' => 'Comando para eliminar al usuario :pin enviado a :count dispositivo(s).',
+    'error_sending_delete_command' => 'Error al enviar el comando de eliminación',
+    'attendance_updated_successfully' => 'Registro de asistencia actualizado correctamente',
+    'attendance_record_not_found' => 'Registro no encontrado',
+    'attendance_error_no_response' => 'Error al procesar el registro de asistencia: no hay respuesta de la API',
+    'attendance_error_processing' => 'Error al procesar el registro de asistencia',
+    'attendance_error_failed_status' => 'Error al procesar el registro de asistencia: :reason',
+    'attendance_status_failed' => 'estado fallido',
+    'attendance_fixed_successfully' => 'Registro de asistencia corregido correctamente',
+    'attendance_api_error' => 'La solicitud a la API falló con estado: :status',
+    'api_config_missing' => 'No se encontró la configuración de la API.',
+    'value_error' => 'Error',
+    'value_not_available' => 'N/D',
+
+    'invalid_timezone' => "Zona horaria no válida: ':value'. Usa un identificador IANA, "
+        . "por ejemplo Asia/Jakarta (UTC+7) o America/Mexico_City (UTC-6). "
+        . "No se aceptan formatos como UTC+7.",
 ];

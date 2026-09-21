@@ -34,7 +34,7 @@ class PushChecadaService
     {
         $oficina = Oficina::first();
         if (!$oficina) {
-            throw new \Exception("No hay oficinas configuradas.");
+            throw new \Exception(__('oficinas.none_configured'));
         }
         $response = Http::get($oficina->public_url() . $this->endpoint);
         return $response->json();
@@ -60,7 +60,7 @@ class PushChecadaService
             if (!$oficina) {
                 return (object)[
                     'status' => 'failed',
-                    'message' => 'Oficina no encontrada para enviar checada'
+                    'message' => __('oficinas.not_found_for_checkin')
                 ];
             }
             Log::info('oficina', ['oficina' => $oficina]);

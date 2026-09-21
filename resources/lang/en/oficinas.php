@@ -26,4 +26,7 @@ return [
     'error_creating' => 'Error creating oficina.',
     'error_updating' => 'Error updating oficina.',
     'error_deleting' => 'Error deleting oficina.',
+    'not_found' => 'Oficina not found',
+    'none_configured' => 'No oficinas are configured.',
+    'not_found_for_checkin' => 'Office not found, the check-in could not be sent.',
 ];

@@ -29,7 +29,7 @@ class DeviceController extends Controller
     // Menampilkan daftar device
     public function index(Request $request)
     {
-        $data['title'] = "Biometric Devices";
+        $data['title'] = __('devices.index_title');
         $data['log'] = Device::all();
         return view('devices.index',$data);
     }
@@ -51,9 +51,9 @@ class DeviceController extends Controller
                 $command->delete();
             }
             $device->delete();
-            return redirect()->route('devices.index')->with('success', 'Biométrico eliminado correctamente');
+            return redirect()->route('devices.index')->with('success', __('devices.deleted_successfully'));
         } else {
-            return redirect()->route('devices.index')->with('error', 'Biométrico no encontrado');
+            return redirect()->route('devices.index')->with('error', __('devices.device_not_found'));
         }
     }
     
@@ -235,14 +235,14 @@ class DeviceController extends Controller
         $oficina->timezone = $this->normalizeTimezone($request->input('timezone'));
         $oficina->save();
 
-        return redirect()->route('devices.oficinas')->with('success', 'Oficina creada correctamente');
+        return redirect()->route('devices.oficinas')->with('success', __('oficinas.created_successfully'));
     }
 
     public function editOficina($id)
     {
         $oficina = Oficina::find($id);
         if (!$oficina) {
-            return redirect()->route('devices.oficinas')->with('error', 'Oficina no encontrada');
+            return redirect()->route('devices.oficinas')->with('error', __('oficinas.not_found'));
         }
         return view('oficinas.edit', compact('oficina'));
     }
@@ -251,7 +251,7 @@ class DeviceController extends Controller
     {
         $oficina = Oficina::find($id);
         if (!$oficina) {
-            return redirect()->route('devices.oficinas')->with('error', 'Oficina no encontrada');
+            return redirect()->route('devices.oficinas')->with('error', __('oficinas.not_found'));
         }
         $oficina->ubicacion = $request->input('ubicacion');
         $oficina->idempresa = $request->input('idempresa');
@@ -265,7 +265,7 @@ class DeviceController extends Controller
 
         $oficina->save();
 
-        return redirect()->route('devices.oficinas')->with('success', 'Oficina actualizada correctamente');
+        return redirect()->route('devices.oficinas')->with('success', __('oficinas.updated_successfully'));
     }
 
 
@@ -296,9 +296,7 @@ class DeviceController extends Controller
             new \DateTimeZone($value);
         } catch (\Throwable $e) {
             throw \Illuminate\Validation\ValidationException::withMessages([
-                'timezone' => "Zona horaria no válida: '{$value}'. Usa un identificador IANA, "
-                    . "por ejemplo Asia/Jakarta (UTC+7) o America/Mexico_City (UTC-6). "
-                    . "No se aceptan formatos como UTC+7.",
+                'timezone' => __('devices.invalid_timezone', ['value' => $value]),
             ]);
         }
 
@@ -316,9 +314,9 @@ class DeviceController extends Controller
                 $device->delete();
             }
             $oficina->delete();
-            return redirect()->route('devices.oficinas')->with('success', 'Oficina eliminada correctamente');
+            return redirect()->route('devices.oficinas')->with('success', __('oficinas.deleted_successfully'));
         } else {
-            return redirect()->route('devices.oficinas')->with('error', 'Oficina no encontrada');
+            return redirect()->route('devices.oficinas')->with('error', __('oficinas.not_found'));
         }
     }
 
@@ -459,7 +457,7 @@ class DeviceController extends Controller
     // 3. Get the serial number
     $serial = Device::where('id', $id)->value('serial_number');
     if (!$serial) {
-        abort(404, 'Device not found');
+        abort(404, __('devices.device_not_found'));
     }
 
     // 4. Query DB for logs
@@ -541,7 +539,7 @@ public function monitor()
         return view('devices.monitor', compact('devices'));
     } catch (\Exception $e) {
         \Log::error("Error in monitor method: " . $e->getMessage());
-        return redirect()->route('devices.index')->with('error', 'Error loading monitor: ' . $e->getMessage());
+        return redirect()->route('devices.index')->with('error', __('devices.error_loading_monitor', ['error' => $e->getMessage()]));
     }
 }
 
@@ -555,7 +553,7 @@ public function monitor()
         $attendanceRecord = Attendance::find($id);
 
         if (!$attendanceRecord) {
-            $message = 'Registro no encontrado';
+            $message = __('devices.attendance_record_not_found');
             if ($request->expectsJson()) {
                 return response()->json(['success' => false, 'message' => $message], 404);
             }
@@ -587,7 +585,7 @@ public function monitor()
         if (empty($response)) {
             $errorMsg = "Failed to process record ID {$attendanceRecord->id}. No response from API.";
             Log::error($errorMsg);
-            $message = 'Error al procesar el registro de asistencia: No respuesta de la API';
+            $message = __('devices.attendance_error_no_response');
             if ($request->expectsJson()) {
                 return response()->json(['success' => false, 'message' => $message]);
             }
@@ -596,7 +594,7 @@ public function monitor()
         if (!$response) {
             $errorMsg = "Failed to process record ID {$attendanceRecord->id}. No response from API.";
             Log::error($errorMsg);
-            $message = 'Error al procesar el registro de asistencia';
+            $message = __('devices.attendance_error_processing');
             if ($request->expectsJson()) {
                 return response()->json(['success' => false, 'message' => $message]);
             }
@@ -605,7 +603,9 @@ public function monitor()
         if (property_exists($response, 'status') && $response->status == 'failed') {
             $errorMsg = "Failed to process record ID {$attendanceRecord->id}. " . $response->message;
             Log::error($errorMsg);
-            $message = 'Error al procesar el registro de asistencia: ' . ($response->message ?? 'Estado fallido');
+            $message = __('devices.attendance_error_failed_status', [
+                'reason' => $response->message ?? __('devices.attendance_status_failed'),
+            ]);
             if ($request->expectsJson()) {
                 return response()->json(['success' => false, 'message' => $message]);
             }
@@ -613,7 +613,7 @@ public function monitor()
         }
         
         // Success response
-        $message = 'Registro de asistencia corregido correctamente';
+        $message = __('devices.attendance_fixed_successfully');
         if ($request->expectsJson()) {
             return response()->json(['success' => true, 'message' => $message]);
         }
@@ -624,7 +624,7 @@ public function monitor()
         $attendanceRecord = Attendance::find($request->input('id'));
         $attendanceRecord->timestamp = $request->input('timestamp');
         $attendanceRecord->save();
-        return redirect()->route('devices.attendance')->with('success', 'Registro de asistencia actualizado correctamente');
+        return redirect()->route('devices.attendance')->with('success', __('devices.attendance_updated_successfully'));
     }
 
     public function create()
@@ -648,7 +648,7 @@ public function monitor()
 		}
         $device->save();
 
-         return redirect()->route('devices.index')->with('success', 'Biometrico actualizado correctamente');
+         return redirect()->route('devices.index')->with('success', __('devices.created_successfully'));
     }
 
     public function show($id)
@@ -670,7 +670,7 @@ public function monitor()
         $oficina = Oficina::where('idoficina', $request->input('idoficina'))->first();
 
         if (!$oficina) {
-            return redirect()->route('devices.index')->with('error', 'Oficina no encontrada');
+            return redirect()->route('devices.index')->with('error', __('oficinas.not_found'));
         }
         $device->name = $request->input('name');
         $device->serial_number = $request->input('serial_number');
@@ -678,7 +678,7 @@ public function monitor()
         $device->idoficina = $oficina->idoficina;
 		$device->idempresa = $request->input('idempresa') ?? $oficina->idempresa;
         $device->save();
-      return redirect()->route('devices.index')->with('success', 'Biométrico actualizado correctamente');
+      return redirect()->route('devices.index')->with('success', __('devices.updated_successfully'));
     }
 
     public function restart(Request $request, $id)
@@ -695,9 +695,9 @@ public function monitor()
                 'data' => "C:{$nextCmdId}:CONTROL DEVICE 03000000",
                 'executed_at' => null
             ]);
-            return redirect()->route('devices.index')->with('success', 'Biométrico reiniciado correctamente');
+            return redirect()->route('devices.index')->with('success', __('devices.restart_successfully'));
         } catch (\Exception $e) {
-            return redirect()->route('devices.index')->with('error', 'Error al reiniciar biométrico');
+            return redirect()->route('devices.index')->with('error', __('devices.error_restarting'));
         }
     }
 
@@ -707,9 +707,9 @@ public function monitor()
         $device = Device::find($id);
         try {
             $device->populate();
-            return redirect()->route('devices.index')->with('success', 'Biométrico actualizado correctamente');
+            return redirect()->route('devices.index')->with('success', __('devices.updated_successfully'));
         } catch (\Exception $e) {
-            return redirect()->route('devices.index')->with('error', 'Error al actualizar biométrico');
+            return redirect()->route('devices.index')->with('error', __('devices.error_updating'));
         }
     }
 
@@ -728,7 +728,7 @@ public function monitor()
         $devices = Device::where('idoficina', $idoficina)->get();
         
         if ($devices->isEmpty()) {
-            return redirect()->back()->with('error', 'No devices found for this office');
+            return redirect()->back()->with('error', __('devices.no_devices_for_office'));
         }
 
         try {
@@ -744,10 +744,13 @@ public function monitor()
                 ]);
             }
 
-            return redirect()->route('devices.index')->with('success', "Command to delete user {$idagente} sent to " . $devices->count() . " devices.");
+            return redirect()->route('devices.index')->with('success', __('devices.delete_command_queued', [
+                'pin' => $idagente,
+                'count' => $devices->count(),
+            ]));
         } catch (\Exception $e) {
             Log::error('Error deleting employee record', ['error' => $e->getMessage()]);
-            return redirect()->back()->with('error', 'Error sending delete command');
+            return redirect()->back()->with('error', __('devices.error_sending_delete_command'));
         }
     }
 }
