@@ -2,7 +2,7 @@
 
 @section('content')
     <div class="container">
-        <h2>{{ $title ?? 'Edit Webhook' }}</h2>
+        <h2>{{ $title ?? __('webhooks.edit_webhook') }}</h2>
 
         @if ($errors->any())
             <div class="alert alert-danger">
@@ -17,7 +17,7 @@
         <form method="post" action="{{ route('webhooks.update', ['id' => $webhook->id ]) }}">
             @csrf
             <div class="form-group mb-3">
-                <label for="device_id">Device</label>
+                <label for="device_id">{{ __('webhooks.device') }}</label>
                 <select name="device_id" id="device_id" class="form-control" required>
                     @foreach ($devices as $device)
                         <option value="{{ $device->id }}" {{ $webhook->device_id == $device->id ? 'selected' : '' }}>
@@ -27,12 +27,12 @@
                 </select>
             </div>
             <div class="form-group mb-3">
-                <label for="url">Webhook URL</label>
+                <label for="url">{{ __('webhooks.webhook_url') }}</label>
                 <input type="url" name="url" class="form-control" id="url" value="{{ old('url', $webhook->url) }}" placeholder="https://example.com/hooks/attendance">
             </div>
-            <button type="submit" class="btn btn-primary">Update</button>
-            <a href="{{ route('webhooks.delete', ['id' => $webhook->id ]) }}" class="btn btn-danger">Delete</a>
-            <a href="{{ route('webhooks.index') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ __('common.update') }}</button>
+            <a href="{{ route('webhooks.delete', ['id' => $webhook->id ]) }}" class="btn btn-danger">{{ __('common.delete') }}</a>
+            <a href="{{ route('webhooks.index') }}" class="btn btn-secondary">{{ __('common.cancel') }}</a>
         </form>
     </div>
 @endsection

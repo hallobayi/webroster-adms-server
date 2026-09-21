@@ -36,7 +36,7 @@ class DeviceController extends Controller
 
     public function DeviceLog(Request $request)
     {
-        $title = "Devices Log";
+        $title = __('devices.device_log_title');
         $deviceLogs = DeviceLog::orderBy('id', 'DESC')->paginate(40);
         return view('devices.log', compact('deviceLogs', 'title'));
     }
@@ -59,7 +59,7 @@ class DeviceController extends Controller
     
     public function FingerLog(Request $request)
     {
-        $title = "Finger Log";
+        $title = __('devices.finger_log_title');
         $deviceLogs = FingerLog::orderBy('id', 'DESC')->paginate(40);
         return view('devices.log', compact('deviceLogs', 'title'));
     }
@@ -213,7 +213,7 @@ class DeviceController extends Controller
     public function Oficinas(Request $request)
     {
         $oficinas = Oficina::all();
-        $title = "Oficinas";
+        $title = __('oficinas.title');
         return  view('oficinas.index', compact('oficinas','title'));
     }
 
@@ -716,7 +716,7 @@ public function monitor()
     public function deleteEmployeeRecord(Request $request)
     {
         $oficinas = Oficina::all();
-        $title = "Delete Employee Record from Device";
+        $title = __('devices.delete_employee_title');
         return view('devices.delete_employee', compact('oficinas', 'title'));
     }
 

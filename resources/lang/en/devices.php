@@ -13,9 +13,11 @@ return [
     'id' => 'ID Clock',
     'oficina' => 'Office',
     'ubicacion' => 'Location',
+    'location' => 'Location',
     'online' => 'Online',
     'last_attendance' => 'Last Attendance',
     'desfases_hoy' => 'Today Issues',
+    'today_issues' => 'Today Issues',
     
     // Form fields
     'device_name' => 'Device Name',
@@ -71,4 +73,44 @@ return [
     'pull_nothing_queued' => 'Nothing queued - an identical pull is already pending for that device.',
     'push_queued' => ':count fingerprint(s) queued for :device.',
     'push_nothing_queued' => 'Nothing to send - the device already holds every stored template (:skipped up to date).',
+
+    // Edit / show screens
+    'show_title' => 'Biometric Device',
+    'model' => 'Model',
+    'select_office' => 'Select Office',
+    'delete_employee_title' => 'Delete Employee Record from Device',
+    'delete_employee_hint' => 'The delete command will be sent to all devices in this office.',
+    'delete_employee_warning' => 'This will queue a command to remove the user from the biometric devices. This action cannot be undone from the server easily.',
+    'enter_pin_to_delete' => 'Enter PIN to delete',
+    'delete_from_devices' => 'Delete from Devices',
+    'fix' => 'Fix',
+
+    // Device monitor
+    'device_status_monitor' => 'Device Status Monitor',
+    'back_to_devices' => 'Back to Devices',
+    'status_legend' => 'Status Legend',
+    'status_online' => 'Online (Last 5 min)',
+    'status_warning' => 'Warning (5-15 min)',
+    'status_offline' => 'Offline (>15 min)',
+    'status_unknown' => 'Unknown',
+    'last_checkin' => 'Last Check-in:',
+    'office_time' => 'Office Time:',
+    'unknown_location' => 'Unknown Location',
+    'time_discrepancies_today' => 'Time Discrepancies Today:',
+    'auto_refresh_notice' => 'Auto-refreshing every 30 seconds',
+
+    // Activity chart
+    'log_finger_title' => 'Finger Log',
+    'select_time_range' => 'Select Time Range:',
+    'range_1h' => 'Last 1 Hour',
+    'range_6h' => 'Last 6 Hours',
+    'range_1d' => 'Last 24 Hours',
+    'range_7d' => 'Last 7 Days',
+    'range_30d' => 'Last 30 Days',
+    'range_90d' => 'Last 90 Days',
+    'range_all' => 'All',
+    'reports_per_minute' => 'Reports per Minute',
+    'reports_per_hour' => 'Reports per Hour',
+    'reports_per_day' => 'Reports per Day',
+    'chart_reports' => 'Number of Reports',
 ];

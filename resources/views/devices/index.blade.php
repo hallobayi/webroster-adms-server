@@ -58,7 +58,7 @@
                                     <i class="fas fa-times-circle text-danger"></i>
                                 @endif
                             @else
-                                <span style="color: gray;">unknown</span>
+                                <span style="color: gray;">{{ __('common.unknown') }}</span>
                             @endif
                         </td>
                         <td>{{ $d->getLastAttendance() ? $d->getLastAttendance()->created_at->diffForHumans() : __('common.unknown') }}</td>
