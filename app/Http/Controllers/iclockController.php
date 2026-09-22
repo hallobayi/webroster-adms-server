@@ -418,9 +418,19 @@ class iclockController extends Controller
         ];
         Log::info('querydata', ['data' => $data]);
 
+        // A terminal always sends SN. Without one, updateOrInsert would try to
+        // insert devices.serial_number = NULL — but that column is NOT NULL and
+        // unique, so the request died with a 23000 integrity violation. With
+        // APP_DEBUG on, that handed a full stack trace to whoever asked.
+        $sn = $request->input('SN');
+        if (!$sn) {
+            Log::warning('querydata called without SN');
+            return "OK";
+        }
+
         // update status device
         DB::table('devices')->updateOrInsert(
-            ['serial_number' => $request->input('SN')],
+            ['serial_number' => $sn],
             ['online' => now()]
         );
 

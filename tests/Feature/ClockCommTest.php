@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Device;
 use App\Models\Oficina;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ClockCommTest extends TestCase
@@ -141,5 +142,46 @@ class ClockCommTest extends TestCase
         $this->assertStringContainsString('TransTimes=00:00;14:05', $body);
         $this->assertStringContainsString('Stamp=9999', $body);
         $this->assertStringContainsString('TransFlag=' . config('adms.trans_flag'), $body);
+    }
+
+    /**
+     * The terminal posts to these endpoints without any CSRF token, because it
+     * is not a browser. If one is missing from VerifyCsrfToken::$except the
+     * device gets a 419 and stops pushing data — and from the outside that looks
+     * identical to a network or firewall problem.
+     */
+    #[DataProvider('devicePostEndpoints')]
+    public function test_device_post_endpoints_are_not_blocked_by_csrf(string $path): void
+    {
+        $this->office();
+        $this->device();
+
+        // Deliberately no token: a browser request would come back 419.
+        $response = $this->post($path, []);
+        $status = $response->getStatusCode();
+
+        $this->assertNotSame(
+            419,
+            $status,
+            "POST {$path} must be exempt from CSRF verification"
+        );
+
+        // The terminal must never see a server error, even for a malformed
+        // payload. querydata used to 500 here on a request carrying no SN.
+        $this->assertLessThan(
+            500,
+            $status,
+            "POST {$path} must not raise a server error"
+        );
+    }
+
+    public static function devicePostEndpoints(): array
+    {
+        return [
+            'cdata' => ['/iclock/cdata'],
+            'devicecmd' => ['/iclock/devicecmd'],
+            'querydata' => ['/iclock/querydata'],
+            'upload-log' => ['/iclock/upload-log'],
+        ];
     }
 }
