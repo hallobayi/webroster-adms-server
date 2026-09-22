@@ -104,6 +104,20 @@ echo
 curl -sS -i -m 15 "https://$HOST/iclock/cdata?SN=$SN&options=all" 2>&1 | head -14
 
 hr
+echo "2b. Every device endpoint, over plain HTTP"
+echo "    419 => the route is missing from VerifyCsrfToken::\$except"
+echo "    500 => the action threw; check storage/logs/laravel.log"
+echo
+for p in "cdata?SN=$SN&options=all" "getrequest?SN=$SN" "test?SN=$SN" "rtdata?SN=$SN"; do
+    printf '    GET  /iclock/%-30s -> %s\n' "$p" \
+        "$(curl -sS -o /dev/null -w '%{http_code}' -m 10 "http://$HOST/iclock/$p" 2>/dev/null)"
+done
+for p in cdata devicecmd querydata upload-log; do
+    printf '    POST /iclock/%-30s -> %s\n' "$p" \
+        "$(curl -sS -o /dev/null -w '%{http_code}' -m 10 -X POST "http://$HOST/iclock/$p" 2>/dev/null)"
+done
+
+hr
 echo "3. Did ANY handshake ever reach PHP?"
 echo "   handshake() logs 'call handshake' as its very first statement."
 echo "   0  => requests never arrive (web-server layer, keep reading)"
