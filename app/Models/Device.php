@@ -70,10 +70,15 @@ class Device extends Model
             return $hayDesfases;
         }
 
-        // Get today's range in office timezone and convert to UTC for querying
+        // The office's local day, expressed in the app timezone - which is the
+        // timezone Eloquent writes created_at in. Converting these boundaries
+        // to UTC instead compared UTC-formatted strings against local-time
+        // rows, sliding the window by the app/office offset (seven hours here)
+        // and dropping punches that had just arrived.
         $officeTimezone = $this->oficina->timezone;
-        $startOfDayUtc = now($officeTimezone)->startOfDay()->setTimezone('UTC');
-        $endOfDayUtc = now($officeTimezone)->endOfDay()->setTimezone('UTC');
+        $appTimezone = config('app.timezone');
+        $startOfDay = now($officeTimezone)->startOfDay()->setTimezone($appTimezone);
+        $endOfDay = now($officeTimezone)->endOfDay()->setTimezone($appTimezone);
 
         // Only rows that are plausibly "live" belong here. A terminal that is
         // replaying its backlog produces rows whose created_at is today but
@@ -83,7 +88,7 @@ class Device extends Model
         // or hours, so a one-day window separates the two cleanly.
         // Get today's attendances for this device based on office local date
         $checadasHoy = Attendance::where('sn', $this->serial_number)
-            ->whereBetween('created_at', [$startOfDayUtc, $endOfDayUtc])
+            ->whereBetween('created_at', [$startOfDay, $endOfDay])
             ->whereBetween('timestamp', [now()->subDay(), now()->addDay()])
             ->get();
 
@@ -242,10 +247,15 @@ class Device extends Model
             return 0;
         }
 
-        // Get today's range in office timezone and convert to UTC for querying
+        // The office's local day, expressed in the app timezone - which is the
+        // timezone Eloquent writes created_at in. Converting these boundaries
+        // to UTC instead compared UTC-formatted strings against local-time
+        // rows, sliding the window by the app/office offset (seven hours here)
+        // and dropping punches that had just arrived.
         $officeTimezone = $this->oficina->timezone;
-        $startOfDayUtc = now($officeTimezone)->startOfDay()->setTimezone('UTC');
-        $endOfDayUtc = now($officeTimezone)->endOfDay()->setTimezone('UTC');
+        $appTimezone = config('app.timezone');
+        $startOfDay = now($officeTimezone)->startOfDay()->setTimezone($appTimezone);
+        $endOfDay = now($officeTimezone)->endOfDay()->setTimezone($appTimezone);
 
         // Only rows that are plausibly "live" belong here. A terminal that is
         // replaying its backlog produces rows whose created_at is today but
@@ -257,7 +267,7 @@ class Device extends Model
         $liveTo = now()->addDay();
 
         $checadasHoy = Attendance::where('sn', $this->serial_number)
-            ->whereBetween('created_at', [$startOfDayUtc, $endOfDayUtc])
+            ->whereBetween('created_at', [$startOfDay, $endOfDay])
             ->whereBetween('timestamp', [$liveFrom, $liveTo])
             ->get();
         

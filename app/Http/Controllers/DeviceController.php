@@ -235,7 +235,16 @@ class DeviceController extends Controller
         $oficina->timezone = $this->normalizeTimezone($request->input('timezone'));
         $oficina->save();
 
-        return redirect()->route('devices.oficinas')->with('success', __('oficinas.created_successfully'));
+        // Saving is not blocked - UTC is a valid identifier - but the operator
+        // is told, because terminals here will silently stop getting corrected.
+        $redirect = redirect()->route('devices.oficinas')
+            ->with('success', __('oficinas.created_successfully'));
+
+        if ($oficina->timezoneIsGeneric()) {
+            $redirect->with('warning', __('oficinas.generic_timezone_help'));
+        }
+
+        return $redirect;
     }
 
     public function editOficina($id)
@@ -265,7 +274,14 @@ class DeviceController extends Controller
 
         $oficina->save();
 
-        return redirect()->route('devices.oficinas')->with('success', __('oficinas.updated_successfully'));
+        $redirect = redirect()->route('devices.oficinas')
+            ->with('success', __('oficinas.updated_successfully'));
+
+        if ($oficina->timezoneIsGeneric()) {
+            $redirect->with('warning', __('oficinas.generic_timezone_help'));
+        }
+
+        return $redirect;
     }
 
 

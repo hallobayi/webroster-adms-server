@@ -588,15 +588,34 @@ class iclockController extends Controller
                 ->where('created_at', '>=', now()->subMinutes($cooldown))
                 ->exists();
 
-            if (!$recentCorrection && $device->getTimezoneDiscrepancyCount() > 0) {
-                $device->commands()->create([
-                    'device_id' => $device->id,
-                    'command' => $nextCmdId,
-                    'data' => "C:{$nextCmdId}:SET OPTIONS DateTime=" . $intDateTime,
-                    'executed_at' => null
-                ]);
-                // refresh pending commands
-                $commands = $device->pendingCommands();
+            $discrepancies = $device->getTimezoneDiscrepancyCount();
+
+            if ($discrepancies > 0 && !$recentCorrection) {
+                $office = $device->oficina;
+
+                if ($office && !$office->timezoneIsGeneric()) {
+                    $device->commands()->create([
+                        'device_id' => $device->id,
+                        'command' => $nextCmdId,
+                        'data' => "C:{$nextCmdId}:SET OPTIONS DateTime=" . $intDateTime,
+                        'executed_at' => null
+                    ]);
+                    // refresh pending commands
+                    $commands = $device->pendingCommands();
+                } else {
+                    // Ordering a terminal to set its clock from a generic zone
+                    // is worse than leaving it alone: an Indonesian office
+                    // recorded as UTC makes this a 7 hour shift, the terminal
+                    // obeys, its punches then read as skewed and the next poll
+                    // orders another correction. $intDateTime is unused here by
+                    // design - the wrong answer is not a fallback.
+                    Log::warning('getrequest: clock correction skipped, office has no local timezone', [
+                        'sn' => $device->serial_number,
+                        'idoficina' => $office?->idoficina,
+                        'timezone' => $office?->timezone,
+                        'discrepancies' => $discrepancies,
+                    ]);
+                }
             }
 
             Log::info('getrequest commands', ['commands' => count($commands)]);
@@ -759,14 +778,15 @@ class iclockController extends Controller
 
         $url = $webhook->url;
         $sn = $device->serial_number;
+        $secret = $webhook->secret;
 
         if (config('queue.default') === 'sync') {
-            SendWebhookJob::dispatchAfterResponse($url, $attLog, $sn);
+            SendWebhookJob::dispatchAfterResponse($url, $attLog, $sn, $secret);
 
             return;
         }
 
-        SendWebhookJob::dispatch($url, $attLog, $sn);
+        SendWebhookJob::dispatch($url, $attLog, $sn, $secret);
     }
 
     private function oldEncodeTime(int $year, int $month, int $day, int $hour, int $minute, int $second): int

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Device;
 use App\Models\Webhook;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class WebhookController extends Controller
 {
@@ -65,6 +66,24 @@ class WebhookController extends Controller
         $webhook->save();
 
         return redirect()->route('webhooks.index')->with('success', __('webhooks.updated_successfully'));
+    }
+
+    /**
+     * Rotate the signing secret. A secret that may have leaked has to be
+     * replaceable; regenerating does not touch the URL or the device.
+     */
+    public function regenerateSecret($id)
+    {
+        $webhook = Webhook::find($id);
+
+        if (!$webhook) {
+            return redirect()->route('webhooks.index')->with('error', __('webhooks.not_found'));
+        }
+
+        $webhook->secret = Str::random(40);
+        $webhook->save();
+
+        return redirect()->route('webhooks.index')->with('success', __('webhooks.secret_regenerated'));
     }
 
     public function delete(Request $request)

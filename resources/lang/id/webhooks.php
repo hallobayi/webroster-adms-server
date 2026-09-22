@@ -20,4 +20,10 @@ return [
     'updated_successfully' => 'Webhook berhasil diperbarui',
     'deleted_successfully' => 'Webhook berhasil dihapus',
     'not_found' => 'Webhook tidak ditemukan',
+
+    // Secret penanda tangan
+    'secret' => 'Rahasia penanda tangan',
+    'secret_help' => 'Setiap pengiriman menyertakan X-Webhook-Signature: HMAC-SHA256 dari "{timestamp}.{body mentah}" dengan rahasia ini, plus X-Webhook-Timestamp. Tolak timestamp yang lebih tua dari beberapa menit untuk mencegah replay.',
+    'regenerate_secret' => 'Buat ulang rahasia',
+    'secret_regenerated' => 'Rahasia penanda tangan berhasil dibuat ulang',
 ];

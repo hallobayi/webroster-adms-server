@@ -29,4 +29,7 @@ return [
     'not_found' => 'Oficina no encontrada',
     'none_configured' => 'No hay oficinas configuradas.',
     'not_found_for_checkin' => 'Oficina no encontrada para enviar la checada.',
+
+    'generic_timezone' => 'Zona horaria genérica',
+    'generic_timezone_help' => 'UTC y GMT no son zonas horarias locales. Los terminales de esta oficina no reciben corrección de reloj hasta que se indique una zona de ciudad como Asia/Jakarta.',
 ];

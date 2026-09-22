@@ -5,14 +5,17 @@ namespace Tests\Feature;
 use App\Jobs\SendWebhookJob;
 use App\Models\Device;
 use App\Models\Oficina;
+use App\Models\User;
 use App\Models\Webhook;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -349,5 +352,144 @@ class WebhookDispatchTest extends TestCase
         $this->postAttlog($this->punch())->assertOk();
 
         Http::assertSentCount(1);
+    }
+
+    private function actingUser(): self
+    {
+        return $this->actingAs(User::factory()->create());
+    }
+
+    /**
+     * A job wired to a given queue connection, so the retry branch can be
+     * exercised without standing up a worker.
+     */
+    private function jobOnConnection(string $connection): SendWebhookJob
+    {
+        $job = new SendWebhookJob(self::URL, [['employee_id' => '1']], 'SN-1', 'a-signing-secret');
+
+        $job->setJob(new SyncJob(app(), json_encode([]), $connection, 'default'));
+
+        return $job;
+    }
+
+    public function test_a_new_webhook_gets_a_signing_secret(): void
+    {
+        $device = $this->deviceWithWebhook(null);
+
+        $webhook = Webhook::create(['device_id' => $device->id, 'url' => self::URL]);
+
+        $this->assertNotEmpty($webhook->secret);
+    }
+
+    public function test_the_delivery_is_signed_with_the_webhook_secret(): void
+    {
+        Http::fake([self::URL => Http::response('', 200)]);
+        $this->deviceWithWebhook();
+
+        $this->postAttlog($this->punch())->assertOk();
+
+        Http::assertSent(function ($request) {
+            $timestamp = $request->header('X-Webhook-Timestamp')[0] ?? null;
+            $signature = $request->header('X-Webhook-Signature')[0] ?? null;
+
+            if (!$timestamp || !$signature) {
+                return false;
+            }
+
+            $expected = 'sha256=' . hash_hmac(
+                'sha256',
+                $timestamp . '.' . $request->body(),
+                (string) Webhook::first()->secret
+            );
+
+            return hash_equals($expected, $signature);
+        });
+    }
+
+    /**
+     * A row created before the secret column existed has none. It is still
+     * delivered - just unsigned, which is a choice the receiver has to be able
+     * to see rather than something that silently drops the delivery.
+     */
+    public function test_a_webhook_without_a_secret_is_delivered_unsigned(): void
+    {
+        Http::fake([self::URL => Http::response('', 200)]);
+        $this->deviceWithWebhook();
+
+        DB::table('webhooks')->update(['secret' => null]);
+
+        $this->postAttlog($this->punch())->assertOk();
+
+        Http::assertSent(function ($request) {
+            return !$request->hasHeader('X-Webhook-Signature')
+                && $request->hasHeader('X-Webhook-Timestamp');
+        });
+    }
+
+    public function test_regenerating_the_secret_rotates_it(): void
+    {
+        $this->deviceWithWebhook();
+        $webhook = Webhook::first();
+        $before = $webhook->secret;
+
+        $response = $this->actingUser()->post(route('webhooks.secret', ['id' => $webhook->id]));
+
+        $response->assertRedirect(route('webhooks.index'));
+        $response->assertSessionHas('success');
+        $this->assertNotSame($before, $webhook->fresh()->secret);
+    }
+
+    /**
+     * Off a real queue a 5xx is worth another attempt, so the job fails and the
+     * worker releases it.
+     */
+    public function test_a_server_error_is_retried_off_a_real_queue(): void
+    {
+        Http::fake([self::URL => Http::response('boom', 500)]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->jobOnConnection('database')->handle();
+    }
+
+    /**
+     * On the sync/after-response path there is no worker and no attempt
+     * counter. Rethrowing would not retry anything - it would only surface as
+     * an uncaught error long after the terminal went away.
+     */
+    public function test_a_server_error_is_not_rethrown_inline(): void
+    {
+        Http::fake([self::URL => Http::response('boom', 500)]);
+
+        $this->jobOnConnection('sync')->handle();
+
+        $this->assertStringContainsString('webhook rejected', $this->webhookLog());
+    }
+
+    /**
+     * A 4xx is the receiver refusing this payload, and it will refuse the same
+     * payload again - retrying only duplicates the delivery.
+     */
+    public function test_a_client_error_is_not_retried(): void
+    {
+        Http::fake([self::URL => Http::response('nope', 422)]);
+
+        $this->jobOnConnection('database')->handle();
+
+        $this->assertStringContainsString('webhook rejected', $this->webhookLog());
+    }
+
+    /**
+     * A transport error is the case that most deserves a retry.
+     */
+    public function test_a_transport_error_is_retried_off_a_real_queue(): void
+    {
+        Http::fake(function () {
+            throw new ConnectionException('Connection timed out');
+        });
+
+        $this->expectException(ConnectionException::class);
+
+        $this->jobOnConnection('database')->handle();
     }
 }

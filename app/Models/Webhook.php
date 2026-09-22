@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Webhook extends Model
 {
@@ -11,9 +12,29 @@ class Webhook extends Model
 
     protected $table = 'webhooks';
 
+    /**
+     * Every webhook gets a signing secret, whatever created it - the UI, a
+     * seeder or a factory. A webhook with no secret is delivered unsigned, and
+     * an unsigned delivery is one the receiver cannot tell apart from a forged
+     * one.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $webhook) {
+            if (empty($webhook->secret)) {
+                $webhook->secret = Str::random(40);
+            }
+        });
+    }
+
     protected $fillable = [
         'device_id',
         'url',
+        'secret',
+    ];
+
+    protected $hidden = [
+        'secret',
     ];
 
     public function device()

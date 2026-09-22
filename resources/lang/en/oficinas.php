@@ -29,4 +29,9 @@ return [
     'not_found' => 'Oficina not found',
     'none_configured' => 'No oficinas are configured.',
     'not_found_for_checkin' => 'Office not found, the check-in could not be sent.',
+
+    // Generic timezones (UTC, GMT, Etc/*) are valid identifiers but are never
+    // the right answer for an office with a terminal in it.
+    'generic_timezone' => 'Generic timezone',
+    'generic_timezone_help' => 'UTC and GMT are not local timezones. Terminals here get no clock correction until this is set to a city zone such as Asia/Jakarta.',
 ];

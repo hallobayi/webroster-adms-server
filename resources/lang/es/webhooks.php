@@ -20,4 +20,10 @@ return [
     'updated_successfully' => 'Webhook actualizado correctamente',
     'deleted_successfully' => 'Webhook eliminado correctamente',
     'not_found' => 'Webhook no encontrado',
+
+    // Secreto de firma
+    'secret' => 'Secreto de firma',
+    'secret_help' => 'Cada envío incluye X-Webhook-Signature: HMAC-SHA256 de "{timestamp}.{cuerpo sin procesar}" con este secreto, más X-Webhook-Timestamp. Rechace marcas de tiempo antiguas para evitar repeticiones.',
+    'regenerate_secret' => 'Regenerar secreto',
+    'secret_regenerated' => 'Secreto de firma regenerado',
 ];

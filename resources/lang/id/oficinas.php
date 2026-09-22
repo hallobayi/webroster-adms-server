@@ -29,4 +29,7 @@ return [
     'not_found' => 'Kantor tidak ditemukan',
     'none_configured' => 'Belum ada kantor yang dikonfigurasi.',
     'not_found_for_checkin' => 'Kantor tidak ditemukan untuk mengirim data kehadiran.',
+
+    'generic_timezone' => 'Zona waktu generik',
+    'generic_timezone_help' => 'UTC dan GMT bukan zona waktu lokal. Perangkat di kantor ini tidak akan menerima koreksi jam sampai diisi zona kota seperti Asia/Jakarta.',
 ];

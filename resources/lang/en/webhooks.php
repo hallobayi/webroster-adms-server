@@ -20,4 +20,10 @@ return [
     'updated_successfully' => 'Webhook updated successfully',
     'deleted_successfully' => 'Webhook deleted successfully',
     'not_found' => 'Webhook not found',
+
+    // Signing secret
+    'secret' => 'Signing secret',
+    'secret_help' => 'Every delivery carries X-Webhook-Signature: HMAC-SHA256 of "{timestamp}.{raw body}" keyed with this secret, plus X-Webhook-Timestamp. Reject timestamps older than a few minutes to stop replays.',
+    'regenerate_secret' => 'Regenerate secret',
+    'secret_regenerated' => 'Signing secret regenerated',
 ];
