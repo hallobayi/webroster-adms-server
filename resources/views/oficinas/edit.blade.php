@@ -5,7 +5,6 @@
         <h2>{{ __('oficinas.edit_oficina') }}</h2>
         <form method="post" action="{{ route('oficinas.update', ['id' => $oficina->id ]) }}">
             @csrf
-            <input type="hidden" name="idoficina" value="{{ $oficina->idoficina }}">
             <div class="form-group">
                 <label for="idempresa">{{ __('oficinas.idempresa') }}</label>
                 <input type="text" name="idempresa" class="form-control" id="idempresa" value="{{ $oficina->idempresa }}">

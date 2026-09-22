@@ -49,34 +49,42 @@ class iclockController extends Controller
                 ['online' => now()]
             );
 
-            // get timezone from office
+            // The terminal must already be registered. (The updateOrInsert above
+            // normally registers it, so this only fires if that write failed.)
             $device = Device::where('serial_number', $request->input('SN'))->first();
             if (!$device) {
                 Log::error('handshake', ['error' => 'Device not found']);
                 return "ERROR: Device not found";
             }
-            $cityTimezone = $this->resolveTimezone($device->oficina->timezone ?? null);
-            $timezone = $cityTimezone;
 
-            $date = Carbon::now($cityTimezone);
-            $format = 'Y-m-d H:i:s';
-            $localTime = $date->format($format);
+            // Two fields here used to be sent with the wrong type, which is a
+            // good way to make a terminal reject the whole options block:
+            //
+            //   OpStamp  is a unix timestamp, not a formatted date. It used to
+            //            carry "Y-m-d H:i:s".
+            //   TimeZone is an hour offset ("7"), not an IANA identifier. It
+            //            used to carry the office's "Asia/Jakarta". Both the
+            //            upstream reference implementation and the working
+            //            x100c deployment omit the field entirely, so it is
+            //            left out here too. The office timezone is still applied
+            //            when attendance timestamps are interpreted.
+            //
+            // TransTimes was commented out; the reference sends it.
 
             $r = "GET OPTION FROM: {$request->input('SN')}\r\n" .
                 "Stamp=9999\r\n" .
-                "OpStamp=" . $localTime . "\r\n" .
+                "OpStamp=" . time() . "\r\n" .
                 "ErrorDelay=60\r\n" .
                 "Delay=30\r\n" .
                 "ResLogDay=18250\r\n" .
                 "ResLogDelCount=10000\r\n" .
                 "ResLogCount=50000\r\n" .
-                //"TransTimes=00:00;14:05\r\n" .
+                "TransTimes=00:00;14:05\r\n" .
                 "TransInterval=4\r\n" .
                 // Positions 6/7 (EnrollFP, ChgFP) are what make the terminal
                 // upload a fingerprint template as soon as it is enrolled or
                 // changed. See config/adms.php.
                 "TransFlag=" . config('adms.trans_flag', '1111111000') . "\r\n" .
-                "TimeZone=". $timezone . "\r\n" .
                 "Realtime=1\r\n" .
                 "Encrypt=0";
 
