@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers;
+use App\Jobs\SendWebhookJob;
 use App\Models\Attendance;
 use App\Models\Command;
 use App\Models\Device;
@@ -13,7 +14,6 @@ use App\Services\FingerprintIngestService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Throwable;
 use Log;
 
@@ -732,6 +732,21 @@ class iclockController extends Controller
         // return is_numeric($value) ? (int) $value : null;
     }
 
+    /**
+     * Hand one attendance batch to the device's webhook, if it has one.
+     *
+     * The POST must never delay the reply the terminal is waiting for: that
+     * reply carries the record count the terminal uses as its upload
+     * watermark, and a terminal whose answer is late re-sends the same batch.
+     * Doing the request here used to hold the terminal for up to five seconds.
+     *
+     * With the "sync" queue connection - what .env.example ships and what
+     * production runs - there is no worker to hand the job to, so it is
+     * dispatched for after the response has been flushed. The terminal is freed
+     * immediately and no supervisor process is needed. Point QUEUE_CONNECTION
+     * at a real driver and run a worker, and the same job is picked up in the
+     * background instead.
+     */
     private function dispatchWebhook($device, array $attLog): void
     {
         if (!$device || empty($attLog)) {
@@ -741,17 +756,17 @@ class iclockController extends Controller
         if (!$webhook || empty($webhook->url)) {
             return;
         }
-        try {
-            if (config('app.debug')) {
-                Log::info('send data to webhook ' . $webhook->url);
-            }
-            Http::timeout(5)->post($webhook->url, ['data' => $attLog]);
-        } catch (Throwable $e) {
-            Log::error('webhook dispatch failed', [
-                'url' => $webhook->url,
-                'error' => $e->getMessage(),
-            ]);
+
+        $url = $webhook->url;
+        $sn = $device->serial_number;
+
+        if (config('queue.default') === 'sync') {
+            SendWebhookJob::dispatchAfterResponse($url, $attLog, $sn);
+
+            return;
         }
+
+        SendWebhookJob::dispatch($url, $attLog, $sn);
     }
 
     private function oldEncodeTime(int $year, int $month, int $day, int $hour, int $minute, int $second): int
