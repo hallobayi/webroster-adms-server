@@ -2,9 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Attendance;
+use App\Models\Command;
 use App\Models\Device;
 use App\Models\Oficina;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
@@ -33,6 +36,41 @@ class ClockCommTest extends TestCase
             'idoficina' => 2,
             'idreloj' => '1',
             'name' => 'Test device',
+        ]);
+    }
+
+    /**
+     * A raw ATTLOG upload. The body is tab separated and arrives as a plain
+     * body, not as form fields, so it has to go through call() to reach
+     * $request->getContent() intact.
+     */
+    private function postAttlog(string $body, string $sn = 'SN-1')
+    {
+        return $this->call(
+            'POST',
+            "/iclock/cdata?SN={$sn}&table=ATTLOG",
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'text/plain'],
+            $body
+        );
+    }
+
+    /**
+     * One attendance row inserted the way ingest writes it: created_at is "just
+     * now", timestamp is the punch time the terminal claims.
+     */
+    private function attendance(\Carbon\Carbon $punchTime): void
+    {
+        DB::table('attendances')->insert([
+            'sn' => 'SN-1',
+            'table' => 'ATTLOG',
+            'stamp' => '9999',
+            'employee_id' => 1,
+            'timestamp' => $punchTime,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
     }
 
@@ -172,6 +210,100 @@ class ClockCommTest extends TestCase
             500,
             $status,
             "POST {$path} must not raise a server error"
+        );
+    }
+
+    /**
+     * A terminal that cannot advance its upload watermark re-sends its whole
+     * log. Ingest has to be idempotent, otherwise attendances grows on every
+     * cycle - 10,389 rows for one device in a single day, 830 of them repeats,
+     * on 2026-09-22.
+     */
+    public function test_replaying_the_same_attlog_does_not_insert_duplicates(): void
+    {
+        $this->office();
+        $this->device();
+
+        $body = "1\t2026-09-22 08:00:00\t0\t1\t0\t0\t0\r\n"
+            . "2\t2026-09-22 08:05:00\t0\t1\t0\t0\t0\r\n";
+
+        $this->postAttlog($body)->assertOk();
+        $this->assertSame(2, Attendance::count());
+
+        // The very same batch again, as a replaying terminal would send it.
+        $this->postAttlog($body)->assertOk();
+
+        $this->assertSame(2, Attendance::count(), 'a replayed batch must not insert duplicates');
+    }
+
+    /**
+     * The reply count is the terminal's watermark. If it shrinks after dedup the
+     * terminal concludes the batch failed and re-sends it forever, so the reply
+     * has to keep reporting how many records the terminal sent.
+     */
+    public function test_attlog_reply_reports_records_sent_not_records_kept(): void
+    {
+        $this->office();
+        $this->device();
+
+        $body = "1\t2026-09-22 08:00:00\t0\t1\t0\t0\t0\r\n";
+
+        $this->postAttlog($body);
+        $second = $this->postAttlog($body);
+
+        $this->assertSame('OK: 1', trim($second->getContent()));
+        $this->assertSame(1, Attendance::count());
+    }
+
+    /**
+     * A device replaying months of backlog is not a clock fault. Counting those
+     * rows made the monitor card read 9,559 on 2026-09-22 while the terminal's
+     * clock was fine, so the figure has to ignore them.
+     */
+    public function test_discrepancy_count_ignores_replayed_backlog(): void
+    {
+        $this->office();
+        $device = $this->device();
+
+        $this->attendance(now()->subDays(400));
+
+        $this->assertSame(0, $device->getTimezoneDiscrepancyCount());
+    }
+
+    /**
+     * A real clock fault - the terminal's idea of "now" is hours off - must
+     * still be reported.
+     */
+    public function test_discrepancy_count_still_reports_a_real_clock_fault(): void
+    {
+        $this->office();
+        $device = $this->device();
+
+        $this->attendance(now()->subHours(3));
+
+        $this->assertSame(1, $device->getTimezoneDiscrepancyCount());
+    }
+
+    /**
+     * The correction is handed to the terminal and marked executed in the same
+     * request, so it is never pending when the next poll arrives and a
+     * pending-command check cannot throttle it. Without the cooldown this queued
+     * a device_commands row on every poll (~30 s) - thousands a day.
+     */
+    public function test_clock_correction_is_not_queued_on_every_poll(): void
+    {
+        $this->office();
+        $this->device();
+
+        $this->attendance(now()->subHours(3));
+
+        $this->get('/iclock/getrequest?SN=SN-1')->assertOk();
+        $this->get('/iclock/getrequest?SN=SN-1')->assertOk();
+
+        $this->assertSame(
+            1,
+            Command::where('data', 'like', '%SET OPTIONS DateTime=%')->count(),
+            'the clock correction must be rate limited'
         );
     }
 

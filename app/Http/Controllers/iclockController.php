@@ -278,7 +278,6 @@ class iclockController extends Controller
      */
     protected function receiveAttendanceRecords(Request $request, ?string $sn, string $body, ?Device $device)
     {
-        $tot = 0;
         $attLogPayload = [];
 
         // Split on line breaks only. The old pattern also split on commas,
@@ -286,6 +285,9 @@ class iclockController extends Controller
         $lines = preg_split('/\r\n|\r|\n/', $body) ?: [];
 
         $idoficina = $device && $device->oficina ? $device->oficina->idoficina : null;
+
+        $rows = [];
+        $seen = [];
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -300,14 +302,23 @@ class iclockController extends Controller
                 continue;
             }
 
-            $row = [
+            // A punch is identified by who punched and when. The same pair
+            // arriving twice is the same event, so collapse it inside the
+            // batch as well as against the table.
+            $key = $data[0] . '|' . $data[1];
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            $rows[] = [
                 'sn' => $sn,
                 'table' => $request->input('table'),
                 'stamp' => $request->input('Stamp') ?? date('Y-m-d H:i:s'),
                 'employee_id' => $data[0],
                 'timestamp' => $data[1] ?? date('Y-m-d H:i:s'),
                 'idoficina' => $idoficina,
-                'idempresa' => $device->idempresa ?? null,
+                'idempresa' => $device?->idempresa,
                 'status1' => $this->validateAndFormatInteger($data[2] ?? null),
                 'status2' => $this->validateAndFormatInteger($data[3] ?? null),
                 'status3' => $this->validateAndFormatInteger($data[4] ?? null),
@@ -316,18 +327,73 @@ class iclockController extends Controller
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
-
-            DB::table('attendances')->insert($row);
-
-            $attLogPayload[] = $row;
-
-            $tot++;
         }
+
+        // Drop anything the table already holds. A terminal that cannot advance
+        // its upload watermark re-sends its whole log on every cycle; without
+        // this the table grows without bound (10,389 rows for one device in a
+        // single day, 830 of them repeats) and every replayed row is then
+        // counted as a clock discrepancy by Device::getTimezoneDiscrepancyCount().
+        $rows = $this->dropAlreadyStored($sn, $rows);
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            DB::table('attendances')->insert($chunk);
+        }
+
+        $attLogPayload = $rows;
 
         // Forward the batch to the device's webhook, if one is configured.
         $this->dispatchWebhook($device, $attLogPayload);
 
-        return "OK: " . $tot;
+        // Report how many records the terminal sent, not how many we kept. The
+        // terminal uses this count to advance its upload watermark, so handing
+        // back a smaller number makes it re-send the same batch forever.
+        Log::info('receiveRecords: attendance batch', [
+            'sn' => $sn,
+            'sent' => count($seen),
+            'inserted' => count($rows),
+            'duplicates' => count($seen) - count($rows),
+        ]);
+
+        return "OK: " . count($seen);
+    }
+
+    /**
+     * Filter out rows whose (employee_id, timestamp) is already stored for this
+     * device. One range query per batch instead of one query per row.
+     *
+     * Note: this compares the raw timestamp string the terminal sent against
+     * what MySQL hands back. If a terminal ever uses a different wire format for
+     * the same instant (for example a compact 20240920100000), the keys will not
+     * match and duplicates will slip through - the "duplicates" count in the log
+     * above is what makes that visible.
+     */
+    protected function dropAlreadyStored(?string $sn, array $rows): array
+    {
+        if (empty($rows)) {
+            return [];
+        }
+
+        $timestamps = array_values(array_filter(array_column($rows, 'timestamp')));
+
+        if (empty($timestamps)) {
+            return $rows;
+        }
+
+        $existing = DB::table('attendances')
+            ->where('sn', $sn)
+            ->whereBetween('timestamp', [min($timestamps), max($timestamps)])
+            ->get(['employee_id', 'timestamp'])
+            ->mapWithKeys(fn ($row) => [$row->employee_id . '|' . $row->timestamp => true]);
+
+        if ($existing->isEmpty()) {
+            return $rows;
+        }
+
+        return array_values(array_filter(
+            $rows,
+            fn ($row) => !$existing->has($row['employee_id'] . '|' . $row['timestamp'])
+        ));
     }
 
     /**
@@ -509,7 +575,20 @@ class iclockController extends Controller
             // Add a set time command to the database synchronously if clock is out of sync
             // For now, mirroring the logic to always send it or send it as a regular command
             // We will send it as a pending command if there's a discrepancy
-            if ($device->getTimezoneDiscrepancyCount() > 0) {
+            // Queue a clock correction at most once per cooldown window. A
+            // pending-command check cannot throttle this: the correction is
+            // handed to the terminal and marked executed in the same request, so
+            // it is never pending by the time the next poll arrives. Without the
+            // cooldown this block added a device_commands row on every poll
+            // (~30 s) for as long as the counter stayed above zero.
+            $cooldown = (int) config('adms.clock_correction_cooldown', 30);
+
+            $recentCorrection = $device->commands()
+                ->where('data', 'like', '%SET OPTIONS DateTime=%')
+                ->where('created_at', '>=', now()->subMinutes($cooldown))
+                ->exists();
+
+            if (!$recentCorrection && $device->getTimezoneDiscrepancyCount() > 0) {
                 $device->commands()->create([
                     'device_id' => $device->id,
                     'command' => $nextCmdId,

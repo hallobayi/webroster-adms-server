@@ -55,8 +55,10 @@ class Device extends Model
         // Check if device has an office with timezone
         if (!$this->oficina || !$this->oficina->timezone) {
             // If no timezone info, use default behavior
+            // Same backlog guard as the timezone-aware branch below.
             $checadasHoy = Attendance::where('sn', $this->serial_number)
                 ->whereDate('created_at', now()->toDateString())
+                ->whereBetween('timestamp', [now()->subDay(), now()->addDay()])
                 ->get();
 
             foreach ($checadasHoy as $attendance) {
@@ -73,9 +75,16 @@ class Device extends Model
         $startOfDayUtc = now($officeTimezone)->startOfDay()->setTimezone('UTC');
         $endOfDayUtc = now($officeTimezone)->endOfDay()->setTimezone('UTC');
 
+        // Only rows that are plausibly "live" belong here. A terminal that is
+        // replaying its backlog produces rows whose created_at is today but
+        // whose timestamp is months old; those are not a clock problem, and
+        // counting them saturated this figure (it read 9,559 out of 10,389 rows
+        // for a single device on 2026-09-22). A clock fault shows up as minutes
+        // or hours, so a one-day window separates the two cleanly.
         // Get today's attendances for this device based on office local date
         $checadasHoy = Attendance::where('sn', $this->serial_number)
             ->whereBetween('created_at', [$startOfDayUtc, $endOfDayUtc])
+            ->whereBetween('timestamp', [now()->subDay(), now()->addDay()])
             ->get();
 
         // go through the attendances and check if there are differences between created_at and timestamp for more than 20min
@@ -238,8 +247,18 @@ class Device extends Model
         $startOfDayUtc = now($officeTimezone)->startOfDay()->setTimezone('UTC');
         $endOfDayUtc = now($officeTimezone)->endOfDay()->setTimezone('UTC');
 
+        // Only rows that are plausibly "live" belong here. A terminal that is
+        // replaying its backlog produces rows whose created_at is today but
+        // whose timestamp is months old; those are not a clock problem, and
+        // counting them saturated this figure (it read 9,559 out of 10,389 rows
+        // for a single device on 2026-09-22). A clock fault shows up as minutes
+        // or hours, so a one-day window separates the two cleanly.
+        $liveFrom = now()->subDay();
+        $liveTo = now()->addDay();
+
         $checadasHoy = Attendance::where('sn', $this->serial_number)
             ->whereBetween('created_at', [$startOfDayUtc, $endOfDayUtc])
+            ->whereBetween('timestamp', [$liveFrom, $liveTo])
             ->get();
         
         $discrepancyCount = 0;

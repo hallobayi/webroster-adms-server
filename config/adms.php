@@ -58,4 +58,12 @@ return [
     */
     'commands_per_request' => (int) env('ADMS_COMMANDS_PER_REQUEST', 20),
 
+    /*
+    | How long to wait before queueing another "set the clock" command for the
+    | same terminal, in minutes. The correction is marked executed as soon as it
+    | is handed to the terminal, so without a cooldown a terminal that stays out
+    | of sync gets a fresh device_commands row on every poll.
+    */
+    'clock_correction_cooldown' => (int) env('ADMS_CLOCK_CORRECTION_COOLDOWN', 30),
+
 ];
