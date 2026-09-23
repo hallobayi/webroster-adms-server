@@ -307,6 +307,64 @@ class ClockCommTest extends TestCase
         );
     }
 
+    /**
+     * The monitor page renders one count per device. Calling the per-device
+     * method in a loop meant one query per terminal; the batched variant must
+     * produce byte-identical figures, or the page and the clock-correction
+     * decision would disagree about the same fleet.
+     */
+    public function test_batched_discrepancy_counts_match_the_per_device_method(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+
+        $other = Device::create([
+            'serial_number' => 'SN-2',
+            'idempresa' => 1,
+            'idoficina' => 2,
+            'idreloj' => '2',
+            'name' => 'Second device',
+        ]);
+
+        // One genuine clock fault on SN-1 ...
+        $this->attendance(now()->subHours(3));
+
+        // ... a replaying backlog on SN-1, which must not count ...
+        DB::table('attendances')->insert([
+            'sn' => 'SN-1',
+            'table' => 'ATTLOG',
+            'stamp' => '9999',
+            'employee_id' => 1,
+            'timestamp' => now()->subDays(400),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // ... and a healthy punch on SN-2.
+        DB::table('attendances')->insert([
+            'sn' => 'SN-2',
+            'table' => 'ATTLOG',
+            'stamp' => '9999',
+            'employee_id' => 2,
+            'timestamp' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $batched = Device::discrepancyCountsFor(Device::all());
+
+        $this->assertSame(1, $batched['SN-1']);
+        $this->assertSame(0, $batched['SN-2']);
+
+        foreach ([$device, $other] as $d) {
+            $this->assertSame(
+                $d->getTimezoneDiscrepancyCount(),
+                $batched[$d->serial_number],
+                "batched count for {$d->serial_number} must match the per-device method"
+            );
+        }
+    }
+
     public static function devicePostEndpoints(): array
     {
         return [

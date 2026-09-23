@@ -550,12 +550,12 @@ class iclockController extends Controller
             // all to the terminal in one response is a good way to make it
             // choke. Drain the queue in batches instead — it comes back every
             // few seconds anyway.
+            //
+            // The limit is passed down to the query. Taking it off the loaded
+            // collection afterwards would still have held every pending row in
+            // memory, which is the whole thing this is meant to avoid.
             $batchSize = (int) config('adms.commands_per_request', 20);
-            $commands = $device->pendingCommands();
-
-            if ($batchSize > 0 && $commands->count() > $batchSize) {
-                $commands = $commands->take($batchSize);
-            }
+            $commands = $device->pendingCommands($batchSize > 0 ? $batchSize : null);
 
             $cmdIdService = resolve(CommandIdService::class);
             $nextCmdId = $cmdIdService->getNextCmdId();
@@ -600,8 +600,9 @@ class iclockController extends Controller
                         'data' => "C:{$nextCmdId}:SET OPTIONS DateTime=" . $intDateTime,
                         'executed_at' => null
                     ]);
-                    // refresh pending commands
-                    $commands = $device->pendingCommands();
+                    // Refresh, so the correction just queued goes out in this
+                    // same response — with the same batch limit applied.
+                    $commands = $device->pendingCommands($batchSize > 0 ? $batchSize : null);
                 } else {
                     // Ordering a terminal to set its clock from a generic zone
                     // is worse than leaving it alone: an Indonesian office

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 use App\Models\Command;
 use App\Models\Oficina;
@@ -56,18 +57,22 @@ class Device extends Model
         if (!$this->oficina || !$this->oficina->timezone) {
             // If no timezone info, use default behavior
             // Same backlog guard as the timezone-aware branch below.
-            $checadasHoy = Attendance::where('sn', $this->serial_number)
+            // Only the two timestamps are needed, and only until the first
+            // offender is found - so ask the database for exactly that instead
+            // of hydrating every row of the day into Eloquent models.
+            $rows = Attendance::where('sn', $this->serial_number)
                 ->whereDate('created_at', now()->toDateString())
                 ->whereBetween('timestamp', [now()->subDay(), now()->addDay()])
-                ->get();
+                ->select(['created_at', 'timestamp'])
+                ->cursor();
 
-            foreach ($checadasHoy as $attendance) {
-                if (abs($attendance->created_at->diffInMinutes($attendance->timestamp)) > 20) {
-                    $hayDesfases = true;
-                    break;
+            foreach ($rows as $row) {
+                if (abs(Carbon::parse($row->created_at)->diffInMinutes(Carbon::parse($row->timestamp))) > 20) {
+                    return true;
                 }
             }
-            return $hayDesfases;
+
+            return false;
         }
 
         // The office's local day, expressed in the app timezone - which is the
@@ -86,30 +91,37 @@ class Device extends Model
         // counting them saturated this figure (it read 9,559 out of 10,389 rows
         // for a single device on 2026-09-22). A clock fault shows up as minutes
         // or hours, so a one-day window separates the two cleanly.
-        // Get today's attendances for this device based on office local date
-        $checadasHoy = Attendance::where('sn', $this->serial_number)
+        // Get today's attendances for this device based on office local date.
+        // Cursored rather than ->get(): the question is only "is there at least
+        // one row more than 20 minutes out of step", so rows are pulled in
+        // batches and the search stops at the first hit. ->get() loaded the
+        // whole day into Eloquent models with their Carbon casts, which is what
+        // exhausted the memory limit on a large table.
+        $rows = Attendance::where('sn', $this->serial_number)
             ->whereBetween('created_at', [$startOfDay, $endOfDay])
             ->whereBetween('timestamp', [now()->subDay(), now()->addDay()])
-            ->get();
+            ->select(['created_at', 'timestamp'])
+            ->cursor();
 
-        // go through the attendances and check if there are differences between created_at and timestamp for more than 20min
-        foreach ($checadasHoy as $attendance) {
-            // Convert attendance timestamp to office timezone for proper comparison
-            $attendanceTimeInOfficeTz = $attendance->timestamp->setTimezone($officeTimezone);
-            
-            // Calculate difference in minutes between when the record was created and the actual attendance time
-            // Both times are now in the same timezone (office timezone)
+        foreach ($rows as $row) {
+            $createdAt = Carbon::parse($row->created_at);
+            $timestamp = Carbon::parse($row->timestamp);
+
+            // Convert both to the office timezone before comparing. They are
+            // bare strings here, so parse first - the model casts did this
+            // implicitly before.
+            $attendanceTimeInOfficeTz = $timestamp->setTimezone($officeTimezone);
+
             // Carbon 3 returns a signed float; abs() keeps the pre-upgrade meaning.
-            $diffInMinutes = abs($attendance->created_at->setTimezone($officeTimezone)
+            $diffInMinutes = abs($createdAt->setTimezone($officeTimezone)
                 ->diffInMinutes($attendanceTimeInOfficeTz));
-            
+
             if ($diffInMinutes > 20) {
-                $hayDesfases = true;
-                break;
+                return true;
             }
         }
-        
-        return $hayDesfases;
+
+        return false;
     }
 
     public function commands()
@@ -127,9 +139,22 @@ class Device extends Model
         return $query->where('online', true);
     }
 
-    public function pendingCommands()
+    /**
+     * Commands waiting to be handed to the terminal.
+     *
+     * $limit is applied by the database, not by slicing the loaded collection:
+     * a fingerprint pull can queue hundreds of commands, and ->get()->take($n)
+     * still holds every one of them in memory before returning $n.
+     */
+    public function pendingCommands(?int $limit = null)
     {
-        return $this->commands()->pending()->get();
+        $query = $this->commands()->pending()->orderBy('id');
+
+        if ($limit !== null && $limit > 0) {
+            $query->limit($limit);
+        }
+
+        return $query->get();
     }
 
     public function populate($employees = null)
@@ -266,23 +291,111 @@ class Device extends Model
         $liveFrom = now()->subDay();
         $liveTo = now()->addDay();
 
-        $checadasHoy = Attendance::where('sn', $this->serial_number)
+        // Two columns, streamed in chunks. This method runs on every terminal
+        // poll, so the previous ->get() - which materialised the device's
+        // entire day as Eloquent models - was both a full table scan (there
+        // was no index on sn) and a per-poll memory spike that grew all day.
+        $rows = Attendance::where('sn', $this->serial_number)
             ->whereBetween('created_at', [$startOfDay, $endOfDay])
             ->whereBetween('timestamp', [$liveFrom, $liveTo])
-            ->get();
-        
+            ->select(['created_at', 'timestamp'])
+            ->cursor();
+
         $discrepancyCount = 0;
-        
-        foreach ($checadasHoy as $attendance) {
-            $attendanceTimeInOfficeTz = $attendance->timestamp->setTimezone($officeTimezone);
-            $diffInMinutes = abs($attendance->created_at->setTimezone($officeTimezone)
+
+        foreach ($rows as $row) {
+            $attendanceTimeInOfficeTz = Carbon::parse($row->timestamp)->setTimezone($officeTimezone);
+            $diffInMinutes = abs(Carbon::parse($row->created_at)->setTimezone($officeTimezone)
                 ->diffInMinutes($attendanceTimeInOfficeTz));
-            
+
             if ($diffInMinutes > 20) {
                 $discrepancyCount++;
             }
         }
-        
+
         return $discrepancyCount;
+    }
+
+    /**
+     * Discrepancy counts for many devices in one pass.
+     *
+     * The monitor page used to call getTimezoneDiscrepancyCount() inside a loop
+     * over every device, so opening /devices ran one query per terminal. This
+     * pulls the day's live rows for the whole fleet in a single query and
+     * buckets them in PHP.
+     *
+     * @param  \Illuminate\Support\Collection<int, Device>  $devices
+     * @return array<string, int> keyed by serial_number
+     */
+    public static function discrepancyCountsFor($devices): array
+    {
+        $counts = [];
+
+        // Only devices with a usable office timezone can have a discrepancy -
+        // getTimezoneDiscrepancyCount() returns 0 for the rest, and matching
+        // that here keeps the two paths in agreement.
+        $timezones = [];
+        $windows = [];
+
+        $appTimezone = config('app.timezone');
+
+        foreach ($devices as $device) {
+            $timezone = optional($device->oficina)->timezone;
+
+            if (!$timezone) {
+                continue;
+            }
+
+            $counts[$device->serial_number] = 0;
+            $timezones[$device->serial_number] = $timezone;
+
+            // Same window getTimezoneDiscrepancyCount() builds: the office's
+            // local day, expressed in the app timezone. Computed per device
+            // because two offices can sit on different calendar days.
+            $windows[$device->serial_number] = [
+                now($timezone)->startOfDay()->setTimezone($appTimezone),
+                now($timezone)->endOfDay()->setTimezone($appTimezone),
+            ];
+        }
+
+        if ($counts === []) {
+            return $counts;
+        }
+
+        // One query for the whole fleet. The bounds are the widest any office
+        // in the set can need (the app-time day, plus a day either side to
+        // absorb the largest offset); the exact per-office window is applied
+        // below, so this is a superset filter only.
+        $rows = Attendance::whereIn('sn', array_keys($counts))
+            ->whereBetween('timestamp', [now()->subDay(), now()->addDay()])
+            ->whereBetween('created_at', [now()->subDays(2), now()->addDays(2)])
+            ->select(['sn', 'created_at', 'timestamp'])
+            ->cursor();
+
+        foreach ($rows as $row) {
+            $timezone = $timezones[$row->sn] ?? null;
+
+            if ($timezone === null) {
+                continue;
+            }
+
+            $createdAt = Carbon::parse($row->created_at);
+            $timestamp = Carbon::parse($row->timestamp);
+
+            // Apply the per-office day window that the aggregated query could
+            // not express. Without this, rows belonging to a neighbouring day
+            // would be counted for offices whose timezone shifts the boundary.
+            [$startOfDay, $endOfDay] = $windows[$row->sn];
+
+            if ($createdAt->lt($startOfDay) || $createdAt->gt($endOfDay)) {
+                continue;
+            }
+
+            if (abs($createdAt->setTimezone($timezone)->diffInMinutes($timestamp->setTimezone($timezone))) > 20) {
+                $counts[$row->sn]++;
+            }
+        }
+
+        return $counts;
     }
 }

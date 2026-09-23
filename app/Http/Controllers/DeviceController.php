@@ -516,7 +516,13 @@ public function monitor()
 {
     try {
 		$devices = Device::all();
-        
+
+        // One aggregate pass for the whole fleet. Calling
+        // getTimezoneDiscrepancyCount() inside the loop below ran a query per
+        // terminal on every page load, which is what took /devices down with a
+        // memory-exhaustion fatal once the table grew.
+        $discrepancyCounts = Device::discrepancyCountsFor($devices);
+
         // Get the last attendance for each device
         foreach ($devices as $device) {
             try {
@@ -538,8 +544,8 @@ public function monitor()
                 $device->office_timezone = $device->oficina ? $device->oficina->timezone : null;
                 $device->office_time_display = $device->current_office_time ? $device->current_office_time->format('H:i') : 'N/A';
                 
-                // Get timezone discrepancy count
-                $device->discrepancy_count = $device->getTimezoneDiscrepancyCount();
+                // From the batched pass above, not a fresh query per device.
+                $device->discrepancy_count = $discrepancyCounts[$device->serial_number] ?? 0;
                 
             } catch (\Exception $e) {
                 \Log::error("Error processing device {$device->id}: " . $e->getMessage());

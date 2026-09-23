@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -36,6 +37,45 @@ class DatabaseSchemaTest extends TestCase
         $this->assertTrue(
             Schema::hasColumn('webhooks', 'secret'),
             'webhooks.secret must exist - deliveries are signed with it'
+        );
+    }
+
+    /**
+     * attendances shipped with no index beyond the primary key, so the
+     * per-poll clock-discrepancy check was a full table scan whose result set
+     * was materialised through PDO::fetchAll(). On production that exhausted
+     * PHP's 128 MB limit and killed /iclock/getrequest every ~8 minutes.
+     *
+     * Column order matters: `sn` is the equality predicate and must come first,
+     * with the two range columns after it.
+     */
+    public function test_attendances_has_the_lookup_indexes(): void
+    {
+        $indexes = collect(DB::select("PRAGMA index_list('attendances')"))
+            ->pluck('name')
+            ->all();
+
+        $this->assertContains(
+            'attendances_sn_created_at_timestamp_index',
+            $indexes,
+            'the per-device, per-day attendance lookup must be indexed'
+        );
+
+        $columns = collect(DB::select("PRAGMA index_info('attendances_sn_created_at_timestamp_index')"))
+            ->sortBy('seqno')
+            ->pluck('name')
+            ->all();
+
+        $this->assertSame(
+            ['sn', 'created_at', 'timestamp'],
+            $columns,
+            'sn must lead the index - it is the equality predicate'
+        );
+
+        $this->assertContains(
+            'attendances_response_uniqueid_index',
+            $indexes,
+            'api:sincronizeAttendance filters on response_uniqueid'
         );
     }
 }
