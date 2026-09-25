@@ -452,14 +452,7 @@ class iclockController extends Controller
             ['online' => now()]
         );
 
-        $intDateTime = $this->oldEncodeTime(
-            Carbon::now('GMT')->year,
-            Carbon::now('GMT')->month,
-            Carbon::now('GMT')->day,
-            Carbon::now('GMT')->hour,
-            Carbon::now('GMT')->minute,
-            Carbon::now('GMT')->second
-        );
+        $intDateTime = AdmsProtocol::encodeDateTime(Carbon::now('GMT'));
 
         $response = "DateTime=" . $intDateTime . ",ServerTZ=+0600";
 
@@ -560,14 +553,7 @@ class iclockController extends Controller
 
             $timezone = $this->resolveTimezone($device->oficina->timezone ?? null);
 
-            $intDateTime = $this->oldEncodeTime(
-                Carbon::now($timezone)->year,
-                Carbon::now($timezone)->month,
-                Carbon::now($timezone)->day,
-                Carbon::now($timezone)->hour,
-                Carbon::now($timezone)->minute,
-                Carbon::now($timezone)->second
-            );
+            $intDateTime = AdmsProtocol::encodeDateTime(Carbon::now($timezone));
             
             // Add a set time command to the database synchronously if clock is out of sync
             // For now, mirroring the logic to always send it or send it as a regular command
@@ -786,11 +772,4 @@ class iclockController extends Controller
 
         SendWebhookJob::dispatch($url, $attLog, $sn, $secret);
     }
-
-    private function oldEncodeTime(int $year, int $month, int $day, int $hour, int $minute, int $second): int
-    {
-        return (($year - 2000) * 12 * 31 + (($month - 1) * 31) + $day - 1) * (24 * 60 * 60)
-            + ($hour * 60 + $minute) * 60 + $second;
-    }
-
 }

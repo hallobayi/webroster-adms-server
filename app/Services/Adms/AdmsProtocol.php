@@ -179,10 +179,38 @@ final class AdmsProtocol
      * Set the terminal's clock.
      *
      * $encoded is the terminal's own packed date/time format, not a string —
-     * see iclockController::oldEncodeTime().
+     * see encodeDateTime().
      */
     public static function setDateTime(int $encoded): string
     {
         return "SET OPTIONS DateTime={$encoded}";
+    }
+
+    /**
+     * Pack a moment into the terminal's own DateTime format.
+     *
+     * Not a unix timestamp and not a formatted string: the terminal counts
+     * (day-of-month - 1) seconds within a month, months within a year, years
+     * from 2000. The caller passes the moment already expressed in the office's
+     * timezone — this function does no timezone conversion of its own, on
+     * purpose, because only the caller knows which zone applies.
+     *
+     * Lives here rather than in the controller because it is protocol, not
+     * request handling: two call sites in iclockController had their own copy
+     * of the arithmetic, and both the clock correction and the on-demand
+     * "set the clock now" action need it to agree exactly.
+     */
+    public static function encodeDateTime(\DateTimeInterface $time): int
+    {
+        $year = (int) $time->format('Y');
+        $month = (int) $time->format('n');
+        $day = (int) $time->format('j');
+        $hour = (int) $time->format('G');
+        $minute = (int) $time->format('i');
+        $second = (int) $time->format('s');
+
+        return (($year - 2000) * 12 * 31 + (($month - 1) * 31) + $day - 1) * (24 * 60 * 60)
+            + ($hour * 60 + $minute) * 60
+            + $second;
     }
 }

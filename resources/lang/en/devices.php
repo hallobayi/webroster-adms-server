@@ -132,6 +132,37 @@ return [
     'value_error' => 'Error',
     'value_not_available' => 'N/A',
 
+    // Get user info
+    'get_user_info' => 'Get User Info',
+    'query_user_explainer' => 'Asks one terminal to re-upload a single employee record. Nothing arrives immediately: the command waits until the terminal next polls the server, usually within a minute for an online device.',
+    'query_with_templates' => 'Also ask for their fingerprint templates',
+    'query_with_templates_help' => 'Adds one query per finger slot. Leave it on to pull the whole person.',
+    'query_user_queue' => 'Queue query',
+    'pin_required' => 'Enter the employee PIN to query.',
+    'query_queued' => ':count command(s) queued for PIN :pin on :device.',
+    'query_nothing_queued' => 'Nothing queued - an identical query is already pending for that device.',
+
+    // Set the clock on demand
+    'set_time' => 'Set time',
+    'set_time_confirm' => 'Set this device clock to the office time now?',
+    'set_time_queued' => 'Clock command sent to :device: :time (:timezone).',
+    'set_time_needs_timezone' => 'Cannot set the clock on :device: its office has no real timezone (UTC, GMT or a bare offset). Set the office timezone first.',
+    'error_setting_time' => 'Error sending the clock command.',
+
+    // Device migration
+    'migrate_device' => 'Migrate Device',
+    'migration_explainer' => 'Moves an office enrolment onto a different terminal, for example when a unit is replaced. The roster and the stored fingerprint templates are queued for the target, which picks them up on its own polling cycle.',
+    'migration_source' => 'Source device',
+    'migration_source_help' => 'The terminal being replaced. It has to belong to the same office as the target.',
+    'migration_target' => 'Target device',
+    'migration_target_help' => 'The terminal that will receive the enrolment. Register it first if it is not listed yet.',
+    'migration_warning' => 'This queues commands that create users and write fingerprint templates on the target terminal. The source device is left untouched - clearing it is a separate action.',
+    'migration_queue' => 'Queue migration',
+    'migration_queued' => 'Migration from :source to :target queued: :employees user record(s) and :templates fingerprint template(s).',
+    'migration_same_device' => 'Source and target are the same device.',
+    'migration_different_office' => 'Source and target belong to different offices. Both the roster and the templates are scoped by office, so this cannot work.',
+    'migration_failed' => 'Migration failed: :error',
+
     'invalid_timezone' => "Invalid timezone: ':value'. Use an IANA identifier, "
         . "for example Asia/Jakarta (UTC+7) or America/Mexico_City (UTC-6). "
         . "Formats like UTC+7 are not accepted.",

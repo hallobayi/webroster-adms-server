@@ -8,6 +8,7 @@ use Log;
 use Yajra\DataTables\Facades\Datatables;
 use App\Services\Adms\AdmsCommandService;
 use App\Services\Adms\AdmsProtocol;
+use App\Services\DeviceMigrationService;
 use App\Services\UpdateChecadaService;
 use Illuminate\Http\Request;
 use App\Models\Agente;
@@ -208,6 +209,118 @@ class DeviceController extends Controller
                 ? __('devices.push_queued', ['count' => $result['commands'], 'device' => $device->name ?: $device->serial_number])
                 : __('devices.push_nothing_queued', ['skipped' => $result['skipped']])
         );
+    }
+
+    /**
+     * Form for asking one terminal about one employee.
+     */
+    public function queryUser(Request $request)
+    {
+        $title = __('devices.get_user_info');
+        $devices = Device::orderBy('idoficina')->get();
+
+        return view('devices.user_info', compact('title', 'devices'));
+    }
+
+    /**
+     * Queue a DATA QUERY USERINFO for one PIN. Nothing waits for an answer: the
+     * terminal replies on its own polling cycle, into /iclock/cdata, and the
+     * record lands wherever user records normally go.
+     */
+    public function runQueryUser(Request $request, PullFingerprintsService $service)
+    {
+        $device = Device::find($request->input('device'));
+        $pin = trim((string) $request->input('pin'));
+
+        if (!$device) {
+            return redirect()->route('devices.queryUser')->with('error', __('devices.device_not_found'));
+        }
+
+        if ($pin === '') {
+            return redirect()->route('devices.queryUser')->with('error', __('devices.pin_required'));
+        }
+
+        $withTemplates = $request->boolean('with_templates');
+
+        $queued = $service->userInfo($device, $pin, $withTemplates);
+
+        Log::info('runQueryUser', [
+            'device_id' => $device->id,
+            'pin' => $pin,
+            'with_templates' => $withTemplates,
+            'commands' => $queued,
+            'triggered_by' => optional($request->user())->email ?? optional($request->user())->id,
+        ]);
+
+        if ($queued === 0) {
+            return redirect()->route('devices.queryUser')->with('error', __('devices.query_nothing_queued'));
+        }
+
+        return redirect()->route('devices.queryUser')->with('success', __('devices.query_queued', [
+            'pin' => $pin,
+            'count' => $queued,
+            'device' => $device->name ?: $device->serial_number,
+        ]));
+    }
+
+    /**
+     * Form for moving an office's enrolment onto a replacement terminal.
+     */
+    public function migrateDevice(Request $request)
+    {
+        $title = __('devices.migrate_device');
+        $devices = Device::orderBy('idoficina')->get();
+
+        return view('devices.migrate', compact('title', 'devices'));
+    }
+
+    /**
+     * Queue the migration. Both halves are queued rather than executed, so the
+     * operator gets a redirect and the target terminal works through the
+     * commands on its own schedule.
+     */
+    public function runMigrateDevice(Request $request, DeviceMigrationService $service)
+    {
+        $source = Device::find($request->input('source'));
+        $target = Device::find($request->input('target'));
+
+        if (!$source || !$target) {
+            return redirect()->route('devices.migrateDevice')->with('error', __('devices.device_not_found'));
+        }
+
+        try {
+            $result = $service->migrate($source, $target);
+        } catch (\Exception $e) {
+            Log::error('runMigrateDevice failed', [
+                'source_id' => $source->id,
+                'target_id' => $target->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->route('devices.migrateDevice')
+                ->with('error', __('devices.migration_failed', ['error' => $e->getMessage()]));
+        }
+
+        if ($result['failed']) {
+            return redirect()->route('devices.migrateDevice')->with('error', match ($result['reason']) {
+                'same_device' => __('devices.migration_same_device'),
+                'different_office' => __('devices.migration_different_office'),
+                default => __('devices.migration_failed', ['error' => (string) $result['reason']]),
+            });
+        }
+
+        Log::info('runMigrateDevice', array_merge($result, [
+            'source_id' => $source->id,
+            'target_id' => $target->id,
+            'triggered_by' => optional($request->user())->email ?? optional($request->user())->id,
+        ]));
+
+        return redirect()->route('devices.index')->with('success', __('devices.migration_queued', [
+            'source' => $source->name ?: $source->serial_number,
+            'target' => $target->name ?: $target->serial_number,
+            'employees' => $result['employees'],
+            'templates' => $result['templates'],
+        ]));
     }
 
     // get oficinas list
@@ -720,6 +833,66 @@ public function monitor()
             return redirect()->route('devices.index')->with('success', __('devices.restart_successfully'));
         } catch (\Exception $e) {
             return redirect()->route('devices.index')->with('error', __('devices.error_restarting'));
+        }
+    }
+
+    /**
+     * Set a terminal's clock now, on demand.
+     *
+     * The same correction iclockController::getrequest() applies automatically
+     * when it notices a discrepancy, except this one is asked for rather than
+     * inferred — useful right after a terminal has been powered on or moved,
+     * when waiting for the next poll and the cooldown is not what you want.
+     *
+     * The guard is deliberately the same as the automatic path's: an office
+     * with a generic timezone (UTC/GMT/an offset) is refused, because ordering a
+     * terminal to set its clock from a zone that is not where the building is
+     * makes it obey, after which its punches read as skewed and the next poll
+     * orders another correction.
+     */
+    public function setTime(Request $request, $id)
+    {
+        Log::info('SetTime', ['id' => $id]);
+
+        $device = Device::find($id);
+
+        if (!$device) {
+            return redirect()->route('devices.index')->with('error', __('devices.device_not_found'));
+        }
+
+        $office = $device->oficina;
+
+        if (!$office || $office->timezoneIsGeneric()) {
+            Log::warning('setTime: refused, office has no local timezone', [
+                'device_id' => $device->id,
+                'idoficina' => $office?->idoficina,
+                'timezone' => $office?->timezone,
+            ]);
+
+            return redirect()->route('devices.index')->with('error', __('devices.set_time_needs_timezone', [
+                'device' => $device->name ?: $device->serial_number,
+            ]));
+        }
+
+        try {
+            $timezone = $office->timezone;
+            $at = now($timezone);
+
+            app(AdmsCommandService::class)->queue(
+                $device,
+                AdmsProtocol::setDateTime(AdmsProtocol::encodeDateTime($at)),
+                AdmsProtocol::TYPE_SET_DATETIME
+            );
+
+            return redirect()->route('devices.index')->with('success', __('devices.set_time_queued', [
+                'device' => $device->name ?: $device->serial_number,
+                'time' => $at->format('Y-m-d H:i:s'),
+                'timezone' => $timezone,
+            ]));
+        } catch (\Exception $e) {
+            Log::error('SetTime failed', ['device_id' => $device->id, 'error' => $e->getMessage()]);
+
+            return redirect()->route('devices.index')->with('error', __('devices.error_setting_time'));
         }
     }
 

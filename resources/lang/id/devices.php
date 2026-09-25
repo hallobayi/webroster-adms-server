@@ -132,6 +132,37 @@ return [
     'value_error' => 'Galat',
     'value_not_available' => 'N/A',
 
+    // Ambil info user
+    'get_user_info' => 'Ambil Info User',
+    'query_user_explainer' => 'Meminta satu terminal mengunggah ulang data satu karyawan. Hasilnya tidak langsung datang: perintah menunggu sampai terminal melakukan polling berikutnya, biasanya dalam satu menit bila perangkat online.',
+    'query_with_templates' => 'Sekaligus minta template sidik jarinya',
+    'query_with_templates_help' => 'Menambah satu kueri per slot jari. Biarkan tercentang untuk menarik data orang itu secara utuh.',
+    'query_user_queue' => 'Antrekan kueri',
+    'pin_required' => 'Isi PIN karyawan yang ingin dikueri.',
+    'query_queued' => ':count perintah diantrekan untuk PIN :pin di :device.',
+    'query_nothing_queued' => 'Tidak ada yang diantrekan - kueri yang sama masih menunggu di perangkat itu.',
+
+    // Set jam manual
+    'set_time' => 'Set jam',
+    'set_time_confirm' => 'Setel jam perangkat ini ke waktu kantor sekarang?',
+    'set_time_queued' => 'Perintah jam dikirim ke :device: :time (:timezone).',
+    'set_time_needs_timezone' => 'Tidak bisa menyetel jam :device: kantornya belum punya zona waktu sebenarnya (UTC, GMT, atau offset saja). Isi dulu zona waktu kantornya.',
+    'error_setting_time' => 'Gagal mengirim perintah jam.',
+
+    // Migrasi device
+    'migrate_device' => 'Migrasi Device',
+    'migration_explainer' => 'Memindahkan pendaftaran sebuah kantor ke terminal lain, misalnya saat unit diganti. Roster karyawan dan template sidik jari yang tersimpan diantrekan untuk perangkat tujuan, lalu diambil pada siklus polling-nya sendiri.',
+    'migration_source' => 'Perangkat asal',
+    'migration_source_help' => 'Terminal yang diganti. Harus berada di kantor yang sama dengan perangkat tujuan.',
+    'migration_target' => 'Perangkat tujuan',
+    'migration_target_help' => 'Terminal yang akan menerima pendaftaran. Daftarkan dulu kalau belum muncul di daftar.',
+    'migration_warning' => 'Ini mengantrekan perintah yang membuat user dan menulis template sidik jari di terminal tujuan. Perangkat asal tidak diubah - mengosongkannya adalah tindakan terpisah.',
+    'migration_queue' => 'Antrekan migrasi',
+    'migration_queued' => 'Migrasi dari :source ke :target diantrekan: :employees data user dan :templates template sidik jari.',
+    'migration_same_device' => 'Perangkat asal dan tujuan sama.',
+    'migration_different_office' => 'Perangkat asal dan tujuan berada di kantor berbeda. Roster maupun template difilter per kantor, jadi ini tidak bisa berjalan.',
+    'migration_failed' => 'Migrasi gagal: :error',
+
     'invalid_timezone' => "Zona waktu tidak valid: ':value'. Gunakan pengenal IANA, "
         . "misalnya Asia/Jakarta (UTC+7) atau America/Mexico_City (UTC-6). "
         . "Format seperti UTC+7 tidak diterima.",

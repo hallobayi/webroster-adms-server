@@ -132,6 +132,37 @@ return [
     'value_error' => 'Error',
     'value_not_available' => 'N/D',
 
+    // Obtener información del usuario
+    'get_user_info' => 'Obtener información del usuario',
+    'query_user_explainer' => 'Pide a un terminal que vuelva a subir el registro de un solo empleado. No llega de inmediato: el comando espera hasta que el terminal consulte al servidor, normalmente dentro de un minuto si está en línea.',
+    'query_with_templates' => 'Pedir también sus plantillas de huella',
+    'query_with_templates_help' => 'Añade una consulta por cada dedo. Déjalo activado para traer a la persona completa.',
+    'query_user_queue' => 'Encolar consulta',
+    'pin_required' => 'Introduce el PIN del empleado que quieres consultar.',
+    'query_queued' => ':count comando(s) encolado(s) para el PIN :pin en :device.',
+    'query_nothing_queued' => 'Nada encolado: ya hay una consulta idéntica pendiente para ese dispositivo.',
+
+    // Ajustar la hora a demanda
+    'set_time' => 'Ajustar hora',
+    'set_time_confirm' => '¿Ajustar ahora el reloj de este dispositivo a la hora de la oficina?',
+    'set_time_queued' => 'Comando de hora enviado a :device: :time (:timezone).',
+    'set_time_needs_timezone' => 'No se puede ajustar la hora de :device: su oficina no tiene una zona horaria real (UTC, GMT o un desplazamiento simple). Configura primero la zona horaria de la oficina.',
+    'error_setting_time' => 'Error al enviar el comando de hora.',
+
+    // Migración de dispositivo
+    'migrate_device' => 'Migrar dispositivo',
+    'migration_explainer' => 'Traslada la inscripción de una oficina a otro terminal, por ejemplo cuando se reemplaza un equipo. El personal y las plantillas de huella almacenadas se encolan para el destino, que las recoge en su propio ciclo de consulta.',
+    'migration_source' => 'Dispositivo de origen',
+    'migration_source_help' => 'El terminal que se reemplaza. Debe pertenecer a la misma oficina que el destino.',
+    'migration_target' => 'Dispositivo de destino',
+    'migration_target_help' => 'El terminal que recibirá la inscripción. Regístralo primero si aún no aparece en la lista.',
+    'migration_warning' => 'Esto encola comandos que crean usuarios y escriben plantillas de huella en el terminal de destino. El dispositivo de origen no se toca: vaciarlo es una acción aparte.',
+    'migration_queue' => 'Encolar migración',
+    'migration_queued' => 'Migración de :source a :target encolada: :employees registro(s) de usuario y :templates plantilla(s) de huella.',
+    'migration_same_device' => 'El origen y el destino son el mismo dispositivo.',
+    'migration_different_office' => 'El origen y el destino pertenecen a oficinas distintas. Tanto el personal como las plantillas se filtran por oficina, así que esto no puede funcionar.',
+    'migration_failed' => 'La migración falló: :error',
+
     'invalid_timezone' => "Zona horaria no válida: ':value'. Usa un identificador IANA, "
         . "por ejemplo Asia/Jakarta (UTC+7) o America/Mexico_City (UTC-6). "
         . "No se aceptan formatos como UTC+7.",

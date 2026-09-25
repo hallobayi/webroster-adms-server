@@ -164,6 +164,51 @@ class PullFingerprintsService
     }
 
     /**
+     * Ask one terminal for a single employee's user record.
+     *
+     * This is the "get info user" operation: `DATA QUERY USERINFO PIN=x` makes
+     * the terminal re-upload that user's record, which lands in
+     * fingerprint_templates / agentes through the normal /iclock/cdata path.
+     *
+     * Distinct from bulk(), which asks for the whole roster with a trailing
+     * empty PIN. It is also distinct from forPin(), which only asks for
+     * templates — a terminal can hold a user record whose templates were never
+     * enrolled, and that is a case worth being able to inspect.
+     *
+     * $withTemplates additionally queues the ten targeted finger queries, which
+     * is what an operator usually wants when they say "pull this person".
+     *
+     * @return int number of commands queued
+     */
+    public function userInfo(Device $device, $pin, bool $withTemplates = true, ?array $fids = null): int
+    {
+        if ($pin === null || $pin === '') {
+            return 0;
+        }
+
+        $queued = $this->queue(
+            $device,
+            AdmsProtocol::queryUserinfo($pin),
+            self::TYPE_QUERY_USER,
+            "PIN:{$pin}"
+        );
+
+        if ($withTemplates) {
+            $queued += $this->forPin($device, $pin, $fids);
+        }
+
+        Log::info('PullFingerprintsService: user info pull queued', [
+            'device_id' => $device->id,
+            'sn' => $device->serial_number,
+            'pin' => $pin,
+            'with_templates' => $withTemplates,
+            'commands' => $queued,
+        ]);
+
+        return $queued;
+    }
+
+    /**
      * Pull across every device in an office.
      *
      * @param array<int, int>|null $fids

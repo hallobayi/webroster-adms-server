@@ -131,6 +131,42 @@ class AdmsProtocolTest extends TestCase
     }
 
     /**
+     * The packed DateTime the terminal expects is not a unix timestamp and not
+     * a formatted string: it counts (day - 1) seconds within a month, months
+     * within a year, years from 2000.
+     *
+     * These expectations are the arithmetic that used to sit inline in
+     * iclockController, evaluated independently. A clock that is off by a month
+     * or a day is worse than one that is off by a minute — punches land on the
+     * wrong date and every discrepancy figure the monitor shows is wrong with
+     * them.
+     */
+    public function test_datetime_encoding_matches_the_terminals_format(): void
+    {
+        $this->assertSame(0, AdmsProtocol::encodeDateTime(new \DateTime('2000-01-01 00:00:00')));
+        $this->assertSame(859203456, AdmsProtocol::encodeDateTime(new \DateTime('2026-09-25 11:37:36')));
+        $this->assertSame(776563199, AdmsProtocol::encodeDateTime(new \DateTime('2024-02-29 23:59:59')));
+    }
+
+    /**
+     * The caller passes the moment already expressed in the office timezone, so
+     * the same instant in two zones must pack differently — otherwise the
+     * server would silently order a terminal to the wrong hour.
+     */
+    public function test_datetime_encoding_reflects_the_moment_it_is_given(): void
+    {
+        $utc = new \DateTime('2026-09-25 04:00:00', new \DateTimeZone('UTC'));
+        $jakarta = (clone $utc)->setTimezone(new \DateTimeZone('Asia/Jakarta'));
+
+        $this->assertSame(859176000, AdmsProtocol::encodeDateTime($utc));
+        $this->assertSame(
+            AdmsProtocol::encodeDateTime($jakarta),
+            859176000 + 7 * 3600,
+            'Jakarta is UTC+7, so the packed value must be seven hours further on'
+        );
+    }
+
+    /**
      * Every type constant must stay distinct: the pull/push pipelines dedupe on
      * type, so two operations sharing one value would make them cancel each
      * other out.

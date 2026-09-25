@@ -44,6 +44,7 @@ Route::middleware(['auth'])
         Route::post('devices/{id}/update', 'update')->name('devices.update');
         Route::get('devices/{id}/populate', 'populate')->name('devices.populate');
         Route::get('devices/{id}/restart', 'restart')->name('devices.restart');
+        Route::get('devices/{id}/set-time', 'setTime')->name('devices.setTime');
         Route::get('devices-log', 'deviceLog')->name('devices.deviceLog');
         Route::get('finger-log', 'fingerLog')->name('devices.fingerLog');
         Route::get('fingerprints', 'fingerprints')->name('devices.fingerprints');
@@ -54,6 +55,12 @@ Route::middleware(['auth'])
         Route::post('devices/retrieve/fingerdata', 'runRetrieveFingerData')->name('devices.runRetrieveFingerData');
         Route::get('devices/{id}/pull-fingerprints', 'pullFingerprints')->name('devices.pullFingerprints');
         Route::post('devices/{id}/push-fingerprints', 'pushFingerprints')->name('devices.pushFingerprints');
+        // Ask one terminal about one employee.
+        Route::get('devices/query-user', 'queryUser')->name('devices.queryUser');
+        Route::post('devices/query-user', 'runQueryUser')->name('devices.runQueryUser');
+        // Move an office's enrolment onto a replacement terminal.
+        Route::get('devices/migrate', 'migrateDevice')->name('devices.migrateDevice');
+        Route::post('devices/migrate', 'runMigrateDevice')->name('devices.runMigrateDevice');
         Route::get('devices/retrieve/attendance/{id}', 'editAttendance')->name('devices.attendance.edit');
         Route::get('devices/retrieve/attendance/fix/{id}', 'fixAttendance')->name('devices.attendance.fix');
         Route::post('devices/retrieve/attendance', 'updateAttendance')->name('devices.attendance.update');
