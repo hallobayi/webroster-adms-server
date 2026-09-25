@@ -134,17 +134,25 @@ final class AdmsProtocol
     /**
      * Send a template down to a terminal.
      *
-     * $size and $valid are optional because a row can be missing its metadata;
-     * each falls back to a sensible default (the payload's own length, and
-     * "valid"), so a half-filled row still produces a well-formed command.
+     * $size and $valid are nullable because a row can be missing its metadata,
+     * so each needs a default — but the two defaults are deliberately not the
+     * same, because the two zeroes are not the same kind of zero:
      *
-     * The fallback uses ?: rather than ?? — deliberately, preserving the
-     * behaviour this replaced. That means a $valid of 0 is sent as Valid=1, and
-     * a $size of 0 as the payload length. It is unreachable today: the only
-     * caller is PushFingerprintsService, and its template query is scoped to
-     * valid rows with a recorded size. Left as-is because "0 means 1" is the
-     * kind of thing worth deciding on purpose rather than fixing in a refactor
-     * — see the note in the accompanying review.
+     *  - Size=0 is meaningless: a template cannot be zero bytes long. A missing
+     *    or zero size therefore falls back to the payload's own length, which
+     *    is at least true.
+     *
+     *  - Valid=0 is meaningful. It is the terminal's flag, not ours: devices
+     *    report it when they upload a template ("FP PIN=.. Valid=0"), and
+     *    ZKTeco's own SDK echoes it back untouched when distributing —
+     *    DevCmdUtil.getUpdateFpContent passes template.getValid() straight into
+     *    the command. Rewriting 0 to 1 would make the server declare a template
+     *    valid that a terminal said was not, and the only thing that can ever
+     *    achieve is handing out a finger the device had already rejected. So
+     *    this one is ??, not ?: — a null is filled in, a zero is passed on.
+     *
+     * Callers are expected to filter invalid rows themselves;
+     * PushFingerprintsService does, via FingerprintTemplate::scopeValid().
      */
     public static function updateFingerTmp(
         string|int|null $pin,
@@ -158,7 +166,7 @@ final class AdmsProtocol
             $pin,
             $fid,
             $size ?: strlen($template),
-            $valid ?: 1,
+            $valid ?? 1,
             $template
         );
     }

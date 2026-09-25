@@ -91,15 +91,17 @@ class AdmsProtocolTest extends TestCase
     }
 
     /**
-     * Size and Valid fall back when the stored metadata is missing, so a
-     * template row that never got its size filled in still goes out.
+     * Size and Valid each need a default when the stored metadata is missing,
+     * and the two defaults are deliberately not the same.
      *
-     * The third case pins down a quirk that was carried over unchanged: the
-     * fallback is a truthiness test, so an explicit 0 is treated as "missing"
-     * and becomes 1. It is unreachable through PushFingerprintsService, which
-     * only ever queues valid rows — this assertion exists so that if someone
-     * does make it reachable, the change shows up here instead of on a
-     * terminal that quietly received a template it was told was valid.
+     * A missing Size falls back to the payload's own length: a template cannot
+     * be zero bytes, so there is no meaningful zero to preserve here.
+     *
+     * A null Valid falls back to 1, but an explicit 0 is passed through
+     * untouched — the flag belongs to the terminal, which reports it when it
+     * uploads a template and expects it echoed back when one is distributed.
+     * Reading 0 as "missing" would have the server declare a template valid
+     * that a device said was not.
      */
     public function test_fingerprint_push_falls_back_on_missing_metadata(): void
     {
@@ -116,9 +118,9 @@ class AdmsProtocolTest extends TestCase
         );
 
         $this->assertSame(
-            "DATA UPDATE FINGERTMP PIN=1234\tFID=0\tSize=40\tValid=1\tTMP=QUJDREVGRw==",
+            "DATA UPDATE FINGERTMP PIN=1234\tFID=0\tSize=40\tValid=0\tTMP=QUJDREVGRw==",
             AdmsProtocol::updateFingerTmp('1234', 0, 40, 0, 'QUJDREVGRw=='),
-            'preserved quirk: a 0 Valid is sent as 1'
+            'an explicit 0 is the terminal\'s own verdict and must survive'
         );
     }
 
