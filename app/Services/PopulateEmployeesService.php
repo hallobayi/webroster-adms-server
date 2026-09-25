@@ -4,13 +4,15 @@ namespace App\Services;
 
 use App\Models\Agente;
 use App\Models\Device;
+use App\Services\Adms\AdmsCommandService;
+use App\Services\Adms\AdmsProtocol;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 class PopulateEmployeesService
 {
-    protected $device;
-    protected $commandIdService;
+    protected Device $device;
+    protected AdmsCommandService $commands;
 
     /**
      * Constructor
@@ -20,10 +22,10 @@ class PopulateEmployeesService
      * @author XMindware
      * @link https://github.com/hallobayi/webroster-adms-server/blob/main/app/Services/PopulateEmployeesService.php
      */
-    public function __construct(Device $device, ?CommandIdService $commandIdService = null)
+    public function __construct(Device $device, ?AdmsCommandService $commands = null)
     {
         $this->device = $device;
-        $this->commandIdService = $commandIdService ?? app(CommandIdService::class);
+        $this->commands = $commands ?? app(AdmsCommandService::class);
     }
 
     /**
@@ -55,30 +57,17 @@ class PopulateEmployeesService
         ]);
 
         foreach ($employees as $employee) {
-            $cmdId = $this->commandIdService->getNextCmdId();
+            // One DATA UPDATE USERINFO per employee. The terminal upserts on
+            // PIN, so this covers both a new hire and a renamed one.
+            $command = $this->commands->queue(
+                $this->device,
+                AdmsProtocol::updateUserinfo($employee->idagente, $employee->fullname),
+                AdmsProtocol::TYPE_USERINFO_UPSERT
+            );
 
-            // create a command to populate the employee
-            $command = $this->device->commands()->create([
-                'command' => $cmdId,
-                'device_id' => $this->device->id,
-                'data' => $this->updateEmployee($employee, $cmdId)
-            ]);
             Log::info('Command created', ['command' => $command]);
         }
 
         return $employees->count();
-    }
-
-    /**
-     * Update Employee Data Format
-     *
-     * Memformat string perintah update data user sesuai protokol ADMS
-     *
-     * @author mdestafadilah
-     * @link https://github.com/hallobayi/webroster-adms-server/blob/main/app/Services/PopulateEmployeesService.php
-     */
-    protected function updateEmployee($employee, $CmdId)
-    {
-        return "C:{$CmdId}:DATA UPDATE USERINFO PIN={$employee->idagente}	Name={$employee->fullname}	Passwd=	Card=	Grp=1	TZ=0000000100000000	Pri=0	Category=0";
     }
 }

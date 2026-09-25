@@ -1,0 +1,188 @@
+<?php
+
+namespace App\Services\Adms;
+
+/**
+ * The ADMS wire vocabulary: how a command looks on the way to a terminal.
+ *
+ * Every command a terminal receives is framed the same way —
+ *
+ *     C:{cmdId}:{payload}
+ *
+ * — and the payload is one of a small, fixed set of instructions ("CHECK",
+ * "DATA UPDATE USERINFO", "CONTROL DEVICE", …). Both halves used to be spelled
+ * out by hand at each call site, in four different styles (string
+ * interpolation, sprintf, concatenation), which is how "DATA DELETE USERINFO"
+ * ended up written two slightly different ways and how the `C:{cmdId}:` prefix
+ * came to be duplicated nine times.
+ *
+ * This class is deliberately static and dependency-free: it is the one place
+ * that knows the protocol, it is trivial to unit test, and it cannot reach the
+ * database by accident.
+ *
+ * Note on `CONTROL DEVICE`: the trailing hex word is a firmware-defined
+ * device-control code, not something this server computes. 03000000 is the code
+ * this fleet's terminals treat as a reboot, which is what the UI has always
+ * labelled "restart".
+ *
+ * @see AdmsCommandService for queueing the result onto a device.
+ */
+final class AdmsProtocol
+{
+    /*
+    |--------------------------------------------------------------------------
+    | Command types
+    |--------------------------------------------------------------------------
+    |
+    | Stored in device_commands.type so a queued command can be told apart from
+    | its neighbours, and so a terminal's acknowledgement can be attributed to
+    | the operation that produced it.
+    |
+    */
+
+    /** Push a full user record to the terminal (create or update, in place). */
+    public const TYPE_USERINFO_UPSERT = 'userinfo_upsert';
+
+    /** Remove a user — and their biometric templates — from the terminal. */
+    public const TYPE_USERINFO_DELETE = 'userinfo_delete';
+
+    /** Reboot the terminal. */
+    public const TYPE_DEVICE_RESTART = 'device_restart';
+
+    /** Correct the terminal's clock. */
+    public const TYPE_SET_DATETIME = 'set_datetime';
+
+    /** Bulk pull: ask the terminal to re-upload what it holds. */
+    public const TYPE_PULL_CHECK = 'pull_check';
+
+    /** Targeted pull: one finger of one employee. */
+    public const TYPE_PULL_FINGERTMP = 'pull_fingertmp';
+
+    /** Ask for a user record. */
+    public const TYPE_PULL_USERINFO = 'pull_userinfo';
+
+    /** Distribute a stored template to a terminal. */
+    public const TYPE_PUSH_FINGERTMP = 'push_fingertmp';
+
+    /**
+     * Frame a payload as a complete command line.
+     *
+     * This is the only place the "C:{cmdId}:" prefix is written.
+     */
+    public static function frame(int $cmdId, string $payload): string
+    {
+        return "C:{$cmdId}:{$payload}";
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Employee records
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Full user record. The terminal upserts on PIN, so this both creates and
+     * updates — there is no separate "create user" instruction in ADMS.
+     *
+     * Field layout is fixed by the protocol; the empty ones (Passwd, Card) and
+     * the defaults (Grp, TZ, Pri, Category) are what the terminals here expect.
+     *
+     * $pin and $name come from columns that are not NOT NULL, and an empty
+     * field is a valid wire value here, so both are cast rather than required.
+     */
+    public static function updateUserinfo(string|int|null $pin, string|int|null $name): string
+    {
+        return "DATA UPDATE USERINFO PIN={$pin}\tName={$name}\tPasswd=\tCard="
+            . "\tGrp=1\tTZ=0000000100000000\tPri=0\tCategory=0";
+    }
+
+    /**
+     * Remove a user by PIN. The terminal drops their templates with them.
+     */
+    public static function deleteUserinfo(string|int|null $pin): string
+    {
+        return "DATA DELETE USERINFO PIN={$pin}";
+    }
+
+    /**
+     * Ask for a user record. An empty PIN means "every user the terminal
+     * holds", which is the form used by a bulk pull.
+     */
+    public static function queryUserinfo(string|int|null $pin = ''): string
+    {
+        return "DATA QUERY USERINFO PIN={$pin}";
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Biometrics
+    |--------------------------------------------------------------------------
+    */
+
+    /** Ask the terminal to re-upload everything it holds. Best-effort. */
+    public static function check(): string
+    {
+        return 'CHECK';
+    }
+
+    /** Ask for one finger of one employee. Precise, one command per finger. */
+    public static function queryFingerTmp(string|int|null $pin, int $fid): string
+    {
+        return "DATA QUERY FINGERTMP PIN={$pin}\tFingerID={$fid}";
+    }
+
+    /**
+     * Send a template down to a terminal.
+     *
+     * $size and $valid are optional because a row can be missing its metadata;
+     * each falls back to a sensible default (the payload's own length, and
+     * "valid"), so a half-filled row still produces a well-formed command.
+     *
+     * The fallback uses ?: rather than ?? — deliberately, preserving the
+     * behaviour this replaced. That means a $valid of 0 is sent as Valid=1, and
+     * a $size of 0 as the payload length. It is unreachable today: the only
+     * caller is PushFingerprintsService, and its template query is scoped to
+     * valid rows with a recorded size. Left as-is because "0 means 1" is the
+     * kind of thing worth deciding on purpose rather than fixing in a refactor
+     * — see the note in the accompanying review.
+     */
+    public static function updateFingerTmp(
+        string|int|null $pin,
+        int $fid,
+        ?int $size,
+        ?int $valid,
+        string $template
+    ): string {
+        return sprintf(
+            "DATA UPDATE FINGERTMP PIN=%s\tFID=%d\tSize=%d\tValid=%d\tTMP=%s",
+            $pin,
+            $fid,
+            $size ?: strlen($template),
+            $valid ?: 1,
+            $template
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Device control
+    |--------------------------------------------------------------------------
+    */
+
+    /** Reboot the terminal. */
+    public static function restartDevice(): string
+    {
+        return 'CONTROL DEVICE 03000000';
+    }
+
+    /**
+     * Set the terminal's clock.
+     *
+     * $encoded is the terminal's own packed date/time format, not a string —
+     * see iclockController::oldEncodeTime().
+     */
+    public static function setDateTime(int $encoded): string
+    {
+        return "SET OPTIONS DateTime={$encoded}";
+    }
+}

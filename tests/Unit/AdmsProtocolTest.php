@@ -1,0 +1,153 @@
+<?php
+
+namespace Tests\Unit;
+
+use App\Services\Adms\AdmsProtocol;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Locks the ADMS wire format.
+ *
+ * These expectations are the literal bytes the server used to assemble by hand
+ * at each call site, before that logic was centralised in AdmsProtocol. They
+ * are written out in full, escapes and all, rather than compared against the
+ * builder's own output — a test that recomputes the value it is checking would
+ * happily agree with a typo.
+ *
+ * A terminal rejects a malformed command silently, so a stray space or a space
+ * where the protocol wants a tab is not a cosmetic problem: the command just
+ * never takes effect. If one of these fails, the fleet stops obeying.
+ */
+class AdmsProtocolTest extends TestCase
+{
+    public function test_a_payload_is_framed_with_the_command_id(): void
+    {
+        $this->assertSame('C:7:CHECK', AdmsProtocol::frame(7, 'CHECK'));
+    }
+
+    public function test_check_payload(): void
+    {
+        $this->assertSame('CHECK', AdmsProtocol::check());
+    }
+
+    /**
+     * The bulk pull asks for every user the terminal holds, which is spelled
+     * with a trailing empty PIN.
+     */
+    public function test_bulk_userinfo_query_leaves_the_pin_empty(): void
+    {
+        $this->assertSame('DATA QUERY USERINFO PIN=', AdmsProtocol::queryUserinfo());
+        $this->assertSame('DATA QUERY USERINFO PIN=1234', AdmsProtocol::queryUserinfo('1234'));
+    }
+
+    public function test_targeted_fingerprint_query(): void
+    {
+        $this->assertSame(
+            "DATA QUERY FINGERTMP PIN=1234\tFingerID=3",
+            AdmsProtocol::queryFingerTmp('1234', 3)
+        );
+    }
+
+    /**
+     * Field order and the empty Passwd/Card slots are part of the protocol, not
+     * decoration — the terminal reads them positionally.
+     */
+    public function test_userinfo_upsert_keeps_every_field_slot(): void
+    {
+        $this->assertSame(
+            "DATA UPDATE USERINFO PIN=1234\tName=Budi Santoso\tPasswd=\tCard=\tGrp=1"
+                . "\tTZ=0000000100000000\tPri=0\tCategory=0",
+            AdmsProtocol::updateUserinfo('1234', 'Budi Santoso')
+        );
+    }
+
+    /**
+     * A roster row with no name must still produce a well-formed command with
+     * an empty Name slot, not a TypeError.
+     */
+    public function test_userinfo_upsert_tolerates_a_missing_name(): void
+    {
+        $this->assertSame(
+            "DATA UPDATE USERINFO PIN=1234\tName=\tPasswd=\tCard=\tGrp=1"
+                . "\tTZ=0000000100000000\tPri=0\tCategory=0",
+            AdmsProtocol::updateUserinfo('1234', null)
+        );
+    }
+
+    public function test_userinfo_delete(): void
+    {
+        $this->assertSame('DATA DELETE USERINFO PIN=1234', AdmsProtocol::deleteUserinfo('1234'));
+        $this->assertSame('DATA DELETE USERINFO PIN=', AdmsProtocol::deleteUserinfo(null));
+    }
+
+    public function test_restart_uses_the_fleet_device_control_code(): void
+    {
+        $this->assertSame('CONTROL DEVICE 03000000', AdmsProtocol::restartDevice());
+    }
+
+    public function test_set_datetime_takes_the_terminals_packed_timestamp(): void
+    {
+        $this->assertSame('SET OPTIONS DateTime=780000000', AdmsProtocol::setDateTime(780000000));
+    }
+
+    /**
+     * Size and Valid fall back when the stored metadata is missing, so a
+     * template row that never got its size filled in still goes out.
+     *
+     * The third case pins down a quirk that was carried over unchanged: the
+     * fallback is a truthiness test, so an explicit 0 is treated as "missing"
+     * and becomes 1. It is unreachable through PushFingerprintsService, which
+     * only ever queues valid rows — this assertion exists so that if someone
+     * does make it reachable, the change shows up here instead of on a
+     * terminal that quietly received a template it was told was valid.
+     */
+    public function test_fingerprint_push_falls_back_on_missing_metadata(): void
+    {
+        // 'QUJDREVGRw==' is 12 bytes; Size must follow the payload when the row
+        // has no size recorded.
+        $this->assertSame(
+            "DATA UPDATE FINGERTMP PIN=1234\tFID=0\tSize=12\tValid=1\tTMP=QUJDREVGRw==",
+            AdmsProtocol::updateFingerTmp('1234', 0, null, null, 'QUJDREVGRw==')
+        );
+
+        $this->assertSame(
+            "DATA UPDATE FINGERTMP PIN=1234\tFID=0\tSize=40\tValid=1\tTMP=QUJDREVGRw==",
+            AdmsProtocol::updateFingerTmp('1234', 0, 40, 1, 'QUJDREVGRw==')
+        );
+
+        $this->assertSame(
+            "DATA UPDATE FINGERTMP PIN=1234\tFID=0\tSize=40\tValid=1\tTMP=QUJDREVGRw==",
+            AdmsProtocol::updateFingerTmp('1234', 0, 40, 0, 'QUJDREVGRw=='),
+            'preserved quirk: a 0 Valid is sent as 1'
+        );
+    }
+
+    public function test_fingerprint_push_frames_like_every_other_command(): void
+    {
+        $this->assertSame(
+            "C:99:DATA UPDATE FINGERTMP PIN=1\tFID=2\tSize=4\tValid=1\tTMP=QQ==",
+            AdmsProtocol::frame(99, AdmsProtocol::updateFingerTmp(1, 2, 4, 1, 'QQ=='))
+        );
+    }
+
+    /**
+     * Every type constant must stay distinct: the pull/push pipelines dedupe on
+     * type, so two operations sharing one value would make them cancel each
+     * other out.
+     */
+    public function test_command_types_are_distinct(): void
+    {
+        $types = [
+            AdmsProtocol::TYPE_USERINFO_UPSERT,
+            AdmsProtocol::TYPE_USERINFO_DELETE,
+            AdmsProtocol::TYPE_DEVICE_RESTART,
+            AdmsProtocol::TYPE_SET_DATETIME,
+            AdmsProtocol::TYPE_PULL_CHECK,
+            AdmsProtocol::TYPE_PULL_FINGERTMP,
+            AdmsProtocol::TYPE_PULL_USERINFO,
+            AdmsProtocol::TYPE_PUSH_FINGERTMP,
+        ];
+
+        $this->assertSame($types, array_values(array_unique($types)));
+    }
+}

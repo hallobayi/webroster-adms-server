@@ -6,7 +6,8 @@ use App\Models\DeviceLog;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Log;
 use Yajra\DataTables\Facades\Datatables;
-use App\Services\CommandIdService;
+use App\Services\Adms\AdmsCommandService;
+use App\Services\Adms\AdmsProtocol;
 use App\Services\UpdateChecadaService;
 use Illuminate\Http\Request;
 use App\Models\Agente;
@@ -703,20 +704,19 @@ public function monitor()
       return redirect()->route('devices.index')->with('success', __('devices.updated_successfully'));
     }
 
-    public function restart(Request $request, $id)
+    public function restart(Request $request, $id, AdmsCommandService $commands)
     {
         Log::info('Restart', ['id' => $id]);
-        $device = Device::find($id);
-        try {
-            $cmdIdService = resolve(CommandIdService::class); 
-            $nextCmdId = $cmdIdService->getNextCmdId();
 
-            $device->commands()->create([
-                'device_id' => $device->id,
-                'command' => $nextCmdId,
-                'data' => "C:{$nextCmdId}:CONTROL DEVICE 03000000",
-                'executed_at' => null
-            ]);
+        $device = Device::find($id);
+
+        if (!$device) {
+            return redirect()->route('devices.index')->with('error', __('devices.device_not_found'));
+        }
+
+        try {
+            $commands->queue($device, AdmsProtocol::restartDevice(), AdmsProtocol::TYPE_DEVICE_RESTART);
+
             return redirect()->route('devices.index')->with('success', __('devices.restart_successfully'));
         } catch (\Exception $e) {
             return redirect()->route('devices.index')->with('error', __('devices.error_restarting'));
@@ -742,29 +742,24 @@ public function monitor()
         return view('devices.delete_employee', compact('oficinas', 'title'));
     }
 
-    public function runDeleteFingerRecord(Request $request)
+    public function runDeleteFingerRecord(Request $request, AdmsCommandService $commands)
     {
         $idagente = $request->input('idagente');
         $idoficina = $request->input('oficina');
-        
+
         $devices = Device::where('idoficina', $idoficina)->get();
-        
+
         if ($devices->isEmpty()) {
             return redirect()->back()->with('error', __('devices.no_devices_for_office'));
         }
 
         try {
-            $cmdIdService = resolve(CommandIdService::class);
-            
-            foreach ($devices as $device) {
-                $nextCmdId = $cmdIdService->getNextCmdId();
-                $device->commands()->create([
-                    'device_id' => $device->id,
-                    'command' => $nextCmdId,
-                    'data' => "C:{$nextCmdId}:DATA DELETE USERINFO PIN={$idagente}",
-                    'executed_at' => null
-                ]);
-            }
+            // The same PIN has to come off every terminal in the office.
+            $commands->queueMany(
+                $devices,
+                AdmsProtocol::deleteUserinfo($idagente),
+                AdmsProtocol::TYPE_USERINFO_DELETE
+            );
 
             return redirect()->route('devices.index')->with('success', __('devices.delete_command_queued', [
                 'pin' => $idagente,

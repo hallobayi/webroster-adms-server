@@ -9,7 +9,8 @@ use App\Models\DeviceLog;
 use App\Models\Fingerprint;
 use App\Models\LogEntry;
 use App\Services\BiometricRecordParser;
-use App\Services\CommandIdService;
+use App\Services\Adms\AdmsCommandService;
+use App\Services\Adms\AdmsProtocol;
 use App\Services\FingerprintIngestService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
@@ -557,10 +558,6 @@ class iclockController extends Controller
             $batchSize = (int) config('adms.commands_per_request', 20);
             $commands = $device->pendingCommands($batchSize > 0 ? $batchSize : null);
 
-            $cmdIdService = resolve(CommandIdService::class);
-            $nextCmdId = $cmdIdService->getNextCmdId();
-            Log::info('Get Request', ['nextCmdId' => $nextCmdId]);
-            
             $timezone = $this->resolveTimezone($device->oficina->timezone ?? null);
 
             $intDateTime = $this->oldEncodeTime(
@@ -594,12 +591,12 @@ class iclockController extends Controller
                 $office = $device->oficina;
 
                 if ($office && !$office->timezoneIsGeneric()) {
-                    $device->commands()->create([
-                        'device_id' => $device->id,
-                        'command' => $nextCmdId,
-                        'data' => "C:{$nextCmdId}:SET OPTIONS DateTime=" . $intDateTime,
-                        'executed_at' => null
-                    ]);
+                    app(AdmsCommandService::class)->queue(
+                        $device,
+                        AdmsProtocol::setDateTime($intDateTime),
+                        AdmsProtocol::TYPE_SET_DATETIME
+                    );
+
                     // Refresh, so the correction just queued goes out in this
                     // same response — with the same batch limit applied.
                     $commands = $device->pendingCommands($batchSize > 0 ? $batchSize : null);
