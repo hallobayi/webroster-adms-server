@@ -41,8 +41,17 @@ class WebhookDispatchTest extends TestCase
 
         // The real channel rotates a file under storage/logs. Point it at a
         // throwaway file so the assertions can read back what was written.
-        $this->logPath = storage_path('logs/webhook-test.log');
-        @unlink($this->logPath);
+        //
+        // The path is unique per test rather than a fixed name. A fixed name
+        // breaks on Windows: the previous test's Monolog handler still holds
+        // the file open when setUp deletes it, so the delete succeeds but the
+        // path stays in a pending-delete state, and opening it again fails with
+        // "Permission denied" until that handle closes. The write is then
+        // swallowed by SendWebhookJob's fallback and the test sees an empty
+        // file - which is exactly how these six assertions went red while the
+        // same code had been green an hour earlier, with nothing changed but
+        // garbage-collection timing.
+        $this->logPath = storage_path('logs/webhook-test-' . bin2hex(random_bytes(8)) . '.log');
 
         config(['logging.channels.webhook' => [
             'driver' => 'single',
