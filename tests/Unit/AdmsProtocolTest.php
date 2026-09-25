@@ -133,6 +133,27 @@ class AdmsProtocolTest extends TestCase
     }
 
     /**
+     * Removing one finger names the finger, not the person — the user record
+     * survives, which is the whole difference from DATA DELETE USERINFO.
+     *
+     * The string is ZKTeco's SDK constant DEV_CMD_DATA_DELETE_FINGER
+     * ("DATA DELETE FINGERTMP PIN={0}\tFID={1}") written out literally, so a
+     * typo here cannot agree with itself.
+     */
+    public function test_fingerprint_delete_wire_format(): void
+    {
+        $this->assertSame(
+            "DATA DELETE FINGERTMP PIN=1234\tFID=3",
+            AdmsProtocol::deleteFingerTmp('1234', 3)
+        );
+
+        $this->assertSame(
+            "C:7:DATA DELETE FINGERTMP PIN=1234\tFID=0",
+            AdmsProtocol::frame(7, AdmsProtocol::deleteFingerTmp('1234', 0))
+        );
+    }
+
+    /**
      * The packed DateTime the terminal expects is not a unix timestamp and not
      * a formatted string: it counts (day - 1) seconds within a month, months
      * within a year, years from 2000.

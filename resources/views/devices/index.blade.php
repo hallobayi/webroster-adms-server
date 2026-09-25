@@ -14,6 +14,9 @@
             <a href="{{ route('devices.migrateDevice') }}" class="btn btn-warning">
                 <i class="fas fa-exchange-alt"></i> {{ __('devices.migrate_device') }}
             </a>
+            <a href="{{ route('devices.removeFingerprints') }}" class="btn btn-outline-danger">
+                <i class="fas fa-fingerprint"></i> {{ __('devices.remove_fingerprints') }}
+            </a>
             <a href="{{ route('devices.monitor') }}" class="btn btn-success">
                 <i class="fas fa-traffic-light"></i> {{ __('devices.monitor_status') }}
             </a>

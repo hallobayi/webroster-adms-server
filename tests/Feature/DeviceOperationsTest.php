@@ -6,17 +6,21 @@ use App\Models\Device;
 use App\Models\FingerprintTemplate;
 use App\Models\Oficina;
 use App\Models\User;
+use App\Services\Adms\AdmsProtocol;
 use App\Services\DeviceMigrationService;
 use App\Services\PullFingerprintsService;
+use App\Services\PushFingerprintsService;
+use App\Services\RemoveFingerprintService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * The three ADMS operations that had no first-class action: asking a terminal
- * about one employee, setting its clock on demand, and moving an office's
- * enrolment onto a replacement terminal.
+ * The ADMS operations that had no first-class action: asking a terminal about
+ * one employee, setting its clock on demand, moving an office's enrolment onto
+ * a replacement terminal, and removing individual fingers without deleting the
+ * person.
  *
- * The common thread is that all three are *queued*, never executed inline — a
+ * The common thread is that all four are *queued*, never executed inline — a
  * terminal only ever learns about them on its next poll. Most of what these
  * tests pin down is therefore "the right row landed in device_commands", plus
  * the guards that stop a nonsensical request from queueing anything at all.
@@ -390,10 +394,14 @@ class DeviceOperationsTest extends TestCase
         $migrate = $this->actingUser()->get('/devices/migrate?lang=es');
         $migrate->assertOk();
         $migrate->assertSee('Migrar dispositivo');
+
+        $remove = $this->actingUser()->get('/devices/remove-fingerprints?lang=id');
+        $remove->assertOk();
+        $remove->assertSee('Hapus Sidik Jari');
     }
 
     /**
-     * The two screens this work edited rather than added: the device list grew
+     * The screens this work edited rather than added: the device list grew
      * buttons and a second confirm-modal action, and the pull form now shares
      * its <select> with the new screens through a partial.
      */
@@ -406,10 +414,189 @@ class DeviceOperationsTest extends TestCase
         $index->assertOk();
         $index->assertSee('/devices/query-user', false);
         $index->assertSee('/devices/migrate', false);
+        $index->assertSee('/devices/remove-fingerprints', false);
         $index->assertSee("/devices/{$device->id}/set-time", false);
 
         $pull = $this->actingUser()->get('/devices/retrieve/fingerdata');
         $pull->assertOk();
         $pull->assertSee('SN-1', false);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Remove individual fingers
+    |--------------------------------------------------------------------------
+    |
+    | DATA DELETE FINGERTMP drops one finger and leaves the user record alone,
+    | which is the whole difference from DATA DELETE USERINFO. The half of this
+    | that is easy to forget is the local side: if our row stays valid, the next
+    | push puts the deleted finger straight back.
+    |
+    */
+
+    public function test_removing_one_finger_queues_the_documented_delete(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+        $this->template($device, '1234', 3);
+
+        $result = app(RemoveFingerprintService::class)->run([$device], '1234', [3]);
+
+        $this->assertSame(1, $result['commands']);
+        $this->assertSame(1, $result['invalidated']);
+
+        $command = $device->commands()->first();
+
+        $this->assertSame(
+            "C:{$command->command}:DATA DELETE FINGERTMP PIN=1234\tFID=3",
+            $command->data
+        );
+        $this->assertSame(AdmsProtocol::TYPE_FINGERTMP_DELETE, $command->type);
+        $this->assertSame('PIN:1234/FID:3', $command->reference);
+    }
+
+    public function test_removing_a_finger_invalidates_our_stored_template(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+        $template = $this->template($device, '1234', 3);
+
+        app(RemoveFingerprintService::class)->run([$device], '1234', [3]);
+
+        $this->assertSame(0, $template->fresh()->valid);
+    }
+
+    /**
+     * Why invalidating is not optional: PushFingerprintsService distributes
+     * valid rows. Leave the row valid and the next push — a migration, a
+     * repair, a bulk push — recreates the finger we just deleted, weeks later,
+     * with nothing in the UI to explain where it came from.
+     */
+    public function test_a_removed_finger_is_not_pushed_back_later(): void
+    {
+        $this->office();
+        $source = $this->device('SN-1');
+        $target = $this->device('SN-2');
+        $this->template($source, '1234', 0);
+
+        // The office holds a distributable template, so a push has work to do.
+        $this->assertSame(1, app(PushFingerprintsService::class)->toDevice($target)['commands']);
+
+        app(RemoveFingerprintService::class)->run([$source], '1234', [0]);
+
+        // Clear the earlier push so only the second one is measured, and so the
+        // dedupe in PushFingerprintsService cannot mask the result.
+        $target->commands()->delete();
+
+        $this->assertSame(0, app(PushFingerprintsService::class)->toDevice($target)['commands']);
+    }
+
+    public function test_removing_a_finger_leaves_the_other_terminals_alone(): void
+    {
+        $this->office();
+        $first = $this->device('SN-1');
+        $second = $this->device('SN-2');
+
+        $onFirst = $this->template($first, '1234', 0);
+        $onSecond = $this->template($second, '1234', 0);
+
+        app(RemoveFingerprintService::class)->run([$first], '1234', [0]);
+
+        $this->assertSame(0, $onFirst->fresh()->valid, 'the terminal we removed from');
+        $this->assertSame(1, $onSecond->fresh()->valid, 'the terminal we never touched');
+        $this->assertSame(0, $second->commands()->count());
+    }
+
+    public function test_removing_all_fingers_queues_one_command_per_index(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+
+        $result = app(RemoveFingerprintService::class)->run(
+            [$device],
+            '1234',
+            RemoveFingerprintService::FIDS
+        );
+
+        // Ten commands, not one: the protocol has no wildcard.
+        $this->assertSame(10, $result['commands']);
+
+        $indices = $device->commands()->orderBy('id')->get()
+            ->map(fn ($command) => (int) explode('FID:', $command->reference)[1])
+            ->all();
+
+        $this->assertSame(range(0, 9), $indices);
+    }
+
+    public function test_removal_is_not_queued_twice_while_pending(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+
+        $service = app(RemoveFingerprintService::class);
+
+        $this->assertSame(1, $service->run([$device], '1234', [0])['commands']);
+        $this->assertSame(0, $service->run([$device], '1234', [0])['commands']);
+        $this->assertSame(1, $device->commands()->count());
+    }
+
+    public function test_removal_without_a_pin_or_fingers_queues_nothing(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+
+        $service = app(RemoveFingerprintService::class);
+
+        $this->assertSame(0, $service->run([$device], '', [0])['commands']);
+        $this->assertSame(0, $service->run([$device], '1234', [])['commands']);
+        $this->assertSame(0, $device->commands()->count());
+    }
+
+    public function test_the_remove_fingerprints_screen_queues_and_redirects(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+        $template = $this->template($device, '1234', 4);
+
+        $response = $this->actingUser()->post('/devices/remove-fingerprints', [
+            'device' => $device->id,
+            'pin' => '1234',
+            'finger' => '4',
+        ]);
+
+        $response->assertRedirect(route('devices.removeFingerprints'));
+        $response->assertSessionHas('success');
+
+        $this->assertSame(1, $device->commands()->count());
+        $this->assertSame(0, $template->fresh()->valid);
+    }
+
+    public function test_the_remove_fingerprints_screen_can_target_every_finger(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+
+        $this->actingUser()->post('/devices/remove-fingerprints', [
+            'device' => $device->id,
+            'pin' => '1234',
+            'finger' => 'all',
+        ])->assertSessionHas('success');
+
+        $this->assertSame(10, $device->commands()->count());
+    }
+
+    public function test_the_remove_fingerprints_screen_rejects_a_finger_that_does_not_exist(): void
+    {
+        $this->office();
+        $device = $this->device('SN-1');
+
+        $response = $this->actingUser()->post('/devices/remove-fingerprints', [
+            'device' => $device->id,
+            'pin' => '1234',
+            'finger' => '99',
+        ]);
+
+        $response->assertSessionHas('error');
+        $this->assertSame(0, $device->commands()->count());
     }
 }

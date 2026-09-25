@@ -163,6 +163,19 @@ return [
     'migration_different_office' => 'Perangkat asal dan tujuan berada di kantor berbeda. Roster maupun template difilter per kantor, jadi ini tidak bisa berjalan.',
     'migration_failed' => 'Migrasi gagal: :error',
 
+    // Remove individual fingers from one terminal
+    'remove_fingerprints' => 'Hapus Sidik Jari',
+    'remove_fingerprints_explainer' => 'Menghapus sidik jari tertentu dari satu terminal tanpa menyentuh data karyawannya: nama, kartu, sandi, dan grup tetap ada. Tidak ada yang langsung terjadi: perintahnya menunggu sampai terminal berikutnya menghubungi server, biasanya dalam satu menit kalau terminalnya online.',
+    'remove_fingerprints_warning' => 'Sidik jari yang dihapus tidak lagi berfungsi di terminal itu. Template yang kita simpan sekaligus ditandai tidak berlaku, jadi pengiriman berikutnya tidak bisa mengembalikannya diam-diam.',
+    'finger' => 'Jari',
+    'finger_n' => 'Jari :n',
+    'finger_all' => 'Semua jari (0-9)',
+    'finger_help' => 'Nomor jari sesuai penomoran terminal (FID 0-9). "Semua jari" mengantre satu perintah per nomor, karena protokolnya tidak punya wildcard.',
+    'finger_required' => 'Pilih jari yang akan dihapus.',
+    'remove_fingerprints_queue' => 'Antre penghapusan',
+    'remove_fingerprints_queued' => ':count perintah diantrekan untuk PIN :pin di :device. :invalidated template tersimpan ditandai tidak berlaku.',
+    'remove_nothing_queued' => 'Tidak ada yang diantrekan - penghapusan yang sama sudah menunggu di device itu.',
+
     'invalid_timezone' => "Zona waktu tidak valid: ':value'. Gunakan pengenal IANA, "
         . "misalnya Asia/Jakarta (UTC+7) atau America/Mexico_City (UTC-6). "
         . "Format seperti UTC+7 tidak diterima.",

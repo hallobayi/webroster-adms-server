@@ -163,6 +163,19 @@ return [
     'migration_different_office' => 'Source and target belong to different offices. Both the roster and the templates are scoped by office, so this cannot work.',
     'migration_failed' => 'Migration failed: :error',
 
+    // Remove individual fingers from one terminal
+    'remove_fingerprints' => 'Remove Fingerprints',
+    'remove_fingerprints_explainer' => 'Removes individual fingers from one terminal while leaving the employee record alone - name, card, password and group all stay. Nothing happens immediately: the command waits until the terminal next polls the server, usually within a minute for an online device.',
+    'remove_fingerprints_warning' => 'The removed finger stops working on that terminal. The template we store is marked invalid at the same time, so a later push cannot quietly put it back.',
+    'finger' => 'Finger',
+    'finger_n' => 'Finger :n',
+    'finger_all' => 'All fingers (0-9)',
+    'finger_help' => 'The finger index as the terminal numbers them (FID 0-9). "All fingers" queues one command per index, because the protocol has no wildcard.',
+    'finger_required' => 'Choose which finger to remove.',
+    'remove_fingerprints_queue' => 'Queue removal',
+    'remove_fingerprints_queued' => ':count command(s) queued for PIN :pin on :device. :invalidated stored template(s) marked invalid.',
+    'remove_nothing_queued' => 'Nothing queued - an identical removal is already pending for that device.',
+
     'invalid_timezone' => "Invalid timezone: ':value'. Use an IANA identifier, "
         . "for example Asia/Jakarta (UTC+7) or America/Mexico_City (UTC-6). "
         . "Formats like UTC+7 are not accepted.",

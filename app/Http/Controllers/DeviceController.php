@@ -20,6 +20,7 @@ use App\Models\FingerLog;
 use App\Models\FingerprintTemplate;
 use App\Services\PullFingerprintsService;
 use App\Services\PushFingerprintsService;
+use App\Services\RemoveFingerprintService;
 use DB;
 
 class DeviceController extends Controller
@@ -320,6 +321,70 @@ class DeviceController extends Controller
             'target' => $target->name ?: $target->serial_number,
             'employees' => $result['employees'],
             'templates' => $result['templates'],
+        ]));
+    }
+
+    /**
+     * Form for removing individual fingers from one terminal.
+     *
+     * Scoped to a single device on purpose: a template row describes what one
+     * terminal holds, so "Budi's right thumb is gone" is only ever true of a
+     * particular unit. Dropping the whole person from every terminal in an
+     * office is the existing Delete User from Device screen.
+     */
+    public function removeFingerprints(Request $request)
+    {
+        $title = __('devices.remove_fingerprints');
+        $devices = Device::orderBy('idoficina')->get();
+
+        return view('devices.remove_fingerprints', compact('title', 'devices'));
+    }
+
+    /**
+     * Queue DATA DELETE FINGERTMP for the chosen finger(s) on the chosen device.
+     */
+    public function runRemoveFingerprints(Request $request, RemoveFingerprintService $service)
+    {
+        $device = Device::find($request->input('device'));
+        $pin = trim((string) $request->input('pin'));
+        $finger = (string) $request->input('finger');
+
+        if (!$device) {
+            return redirect()->route('devices.removeFingerprints')->with('error', __('devices.device_not_found'));
+        }
+
+        if ($pin === '') {
+            return redirect()->route('devices.removeFingerprints')->with('error', __('devices.pin_required'));
+        }
+
+        // "all" is ten commands, not one: the protocol has no wildcard, so every
+        // finger index has to be asked for by name.
+        if ($finger === 'all') {
+            $fids = RemoveFingerprintService::FIDS;
+        } elseif ($finger === '' || !ctype_digit($finger) || !in_array((int) $finger, RemoveFingerprintService::FIDS, true)) {
+            return redirect()->route('devices.removeFingerprints')->with('error', __('devices.finger_required'));
+        } else {
+            $fids = [(int) $finger];
+        }
+
+        $result = $service->run([$device], $pin, $fids);
+
+        Log::info('runRemoveFingerprints', array_merge($result, [
+            'device_id' => $device->id,
+            'pin' => $pin,
+            'triggered_by' => optional($request->user())->email ?? optional($request->user())->id,
+        ]));
+
+        if ($result['commands'] === 0) {
+            return redirect()->route('devices.removeFingerprints')
+                ->with('error', __('devices.remove_nothing_queued'));
+        }
+
+        return redirect()->route('devices.removeFingerprints')->with('success', __('devices.remove_fingerprints_queued', [
+            'count' => $result['commands'],
+            'pin' => $pin,
+            'device' => $device->name ?: $device->serial_number,
+            'invalidated' => $result['invalidated'],
         ]));
     }
 

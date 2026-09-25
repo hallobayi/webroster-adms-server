@@ -163,6 +163,19 @@ return [
     'migration_different_office' => 'El origen y el destino pertenecen a oficinas distintas. Tanto el personal como las plantillas se filtran por oficina, así que esto no puede funcionar.',
     'migration_failed' => 'La migración falló: :error',
 
+    // Remove individual fingers from one terminal
+    'remove_fingerprints' => 'Eliminar huellas',
+    'remove_fingerprints_explainer' => 'Elimina huellas concretas de un terminal y deja intacto el registro del empleado: nombre, tarjeta, contraseña y grupo se mantienen. Nada ocurre de inmediato: el comando espera a que el terminal consulte al servidor, normalmente dentro de un minuto si está en línea.',
+    'remove_fingerprints_warning' => 'La huella eliminada deja de funcionar en ese terminal. La plantilla que guardamos se marca como no válida al mismo tiempo, así que un envío posterior no puede devolverla sin avisar.',
+    'finger' => 'Dedo',
+    'finger_n' => 'Dedo :n',
+    'finger_all' => 'Todos los dedos (0-9)',
+    'finger_help' => 'El índice del dedo tal como lo numera el terminal (FID 0-9). "Todos los dedos" encola un comando por índice, porque el protocolo no tiene comodín.',
+    'finger_required' => 'Elige qué dedo eliminar.',
+    'remove_fingerprints_queue' => 'Encolar eliminación',
+    'remove_fingerprints_queued' => ':count comando(s) en cola para el PIN :pin en :device. :invalidated plantilla(s) guardada(s) marcada(s) como no válida(s).',
+    'remove_nothing_queued' => 'Nada en cola: ya hay una eliminación idéntica pendiente para ese dispositivo.',
+
     'invalid_timezone' => "Zona horaria no válida: ':value'. Usa un identificador IANA, "
         . "por ejemplo Asia/Jakarta (UTC+7) o America/Mexico_City (UTC-6). "
         . "No se aceptan formatos como UTC+7.",

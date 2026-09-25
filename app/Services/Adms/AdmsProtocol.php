@@ -46,6 +46,9 @@ final class AdmsProtocol
     /** Remove a user — and their biometric templates — from the terminal. */
     public const TYPE_USERINFO_DELETE = 'userinfo_delete';
 
+    /** Remove one finger of one employee, leaving the user record alone. */
+    public const TYPE_FINGERTMP_DELETE = 'fingertmp_delete';
+
     /** Reboot the terminal. */
     public const TYPE_DEVICE_RESTART = 'device_restart';
 
@@ -169,6 +172,33 @@ final class AdmsProtocol
             $valid ?? 1,
             $template
         );
+    }
+
+    /**
+     * Remove one finger of one employee from a terminal.
+     *
+     * This is the precise counterpart of DATA DELETE USERINFO, which drops the
+     * person and every template they have. Here the user record survives — name,
+     * card, password, group all stay — and only the finger goes. Use it when a
+     * finger was enrolled by mistake, or when one hand is re-enrolled and the
+     * stale slot would otherwise keep matching.
+     *
+     * FID is the finger index, 0..9. There is no "all fingers" spelling in the
+     * protocol: ZKTeco's SDK only defines the PIN+FID form, so removing every
+     * finger means one command per index.
+     *
+     * Note the asymmetry with DATA DELETE USERINFO: this instruction is a
+     * command of its own, whereas on the device side a template is also
+     * considered gone when it is uploaded with Valid=0. We deliberately use the
+     * documented delete rather than "push the same template back with Valid=0",
+     * because only one of those two is specified behaviour.
+     */
+    public static function deleteFingerTmp(string|int|null $pin, int $fid): string
+    {
+        // Double quotes: the field separator has to be a real tab. In single
+        // quotes \t is a backslash and a letter t, which the terminal reads as
+        // one malformed field name — the test below is what caught that.
+        return sprintf("DATA DELETE FINGERTMP PIN=%s\tFID=%d", $pin, $fid);
     }
 
     /*
