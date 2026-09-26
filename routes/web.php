@@ -1,6 +1,7 @@
 <?php
 
-use App\Http\Controllers\UsersController;
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\OficinaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -48,7 +49,6 @@ Route::middleware(['auth'])
         Route::get('devices-log', 'deviceLog')->name('devices.deviceLog');
         Route::get('finger-log', 'fingerLog')->name('devices.fingerLog');
         Route::get('fingerprints', 'fingerprints')->name('devices.fingerprints');
-        Route::get('attendance', 'attendance')->name('devices.attendance');
         Route::get('devices/delete/employee', 'deleteEmployeeRecord')->name('devices.deleteEmployeeRecord');
         Route::post('devices/delete/employee', 'runDeleteFingerRecord')->name('devices.runDeleteFingerRecord');
         Route::get('devices/retrieve/fingerdata', 'retrieveFingerData')->name('devices.retrieveFingerData');
@@ -64,18 +64,28 @@ Route::middleware(['auth'])
         // Drop individual fingers from one terminal, keeping the user record.
         Route::get('devices/remove-fingerprints', 'removeFingerprints')->name('devices.removeFingerprints');
         Route::post('devices/remove-fingerprints', 'runRemoveFingerprints')->name('devices.runRemoveFingerprints');
-        Route::get('devices/retrieve/attendance/{id}', 'editAttendance')->name('devices.attendance.edit');
-        Route::get('devices/retrieve/attendance/fix/{id}', 'fixAttendance')->name('devices.attendance.fix');
-        Route::post('devices/retrieve/attendance', 'updateAttendance')->name('devices.attendance.update');
         Route::get('/devices/activity/{id}', 'devicesActivity')->name('devices.activity');
         Route::get('/devices/monitor', 'monitor')->name('devices.monitor');
+    });
 
-        Route::get('oficinas', 'oficinas')->name('devices.oficinas');
-        Route::get('oficinas/create', 'createOficina')->name('oficinas.create');
-        Route::post('oficinas/store', 'storeOficina')->name('oficinas.store');
-        Route::get('oficinas/{id}/edit', 'editOficina')->name('oficinas.edit');
-        Route::post('oficinas/{id}/update', 'updateOficina')->name('oficinas.update');
-        Route::get('oficinas/delete', 'deleteOficina')->name('oficinas.delete');
+Route::middleware(['auth'])
+    ->controller(AttendanceController::class)
+    ->group(function () {
+        Route::get('attendance', 'index')->name('devices.attendance');
+        Route::get('devices/retrieve/attendance/{id}', 'edit')->name('devices.attendance.edit');
+        Route::get('devices/retrieve/attendance/fix/{id}', 'fix')->name('devices.attendance.fix');
+        Route::post('devices/retrieve/attendance', 'update')->name('devices.attendance.update');
+    });
+
+Route::middleware(['auth'])
+    ->controller(OficinaController::class)
+    ->group(function () {
+        Route::get('oficinas', 'index')->name('devices.oficinas');
+        Route::get('oficinas/create', 'create')->name('oficinas.create');
+        Route::post('oficinas/store', 'store')->name('oficinas.store');
+        Route::get('oficinas/{id}/edit', 'edit')->name('oficinas.edit');
+        Route::post('oficinas/{id}/update', 'update')->name('oficinas.update');
+        Route::get('oficinas/delete', 'destroy')->name('oficinas.delete');
     });
 
 Route::middleware(['auth'])
@@ -101,7 +111,7 @@ Route::middleware(['auth'])
 
 // handshake
 Route::get('/iclock/cdata', [iclockController::class, 'handshake']);
-// request dari device
+// Records pushed by the terminal.
 Route::post('/iclock/cdata', [iclockController::class, 'receiveRecords']);
 Route::post('/iclock/devicecmd', [iclockController::class, 'deviceCommand']);
 Route::get('/iclock/test', [iclockController::class, 'test']);

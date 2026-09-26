@@ -36,7 +36,7 @@ class Oficina extends Model
      * Whether oficinas.timezone holds a generic zone instead of a real one.
      *
      * "UTC", "GMT", "Etc/*" and bare offsets ("+00:00") are all valid IANA
-     * identifiers, so DeviceController::normalizeTimezone() accepts them and
+     * identifiers, so OficinaController::normalizeTimezone() accepts them and
      * they look perfectly fine in the table. A physical office with a building
      * and a terminal in it is never actually in one of them - they end up here
      * when the field was defaulted or never filled in.

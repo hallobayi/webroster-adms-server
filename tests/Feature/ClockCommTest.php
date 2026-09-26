@@ -365,6 +365,43 @@ class ClockCommTest extends TestCase
         }
     }
 
+    /**
+     * quickStatus reads the newest error_log row. created_at comes back from the
+     * query builder as a plain string, and calling ->toIso8601String() on it
+     * used to fatal - so the endpoint 500'd as soon as there was one row to
+     * report, which is exactly when it matters.
+     */
+    public function test_quick_status_reports_the_newest_error_with_a_parsable_timestamp(): void
+    {
+        DB::table('error_log')->insert([
+            'data' => 'Something went wrong on the terminal',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->get('/api/test');
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('status', 'error');
+
+        $timestamp = $response->json('timestamp');
+
+        $this->assertNotEmpty($timestamp, 'an error report must carry a timestamp');
+        $this->assertSame(
+            $timestamp,
+            \Carbon\Carbon::parse($timestamp)->toIso8601String(),
+            'the timestamp must be a valid ISO 8601 instant'
+        );
+    }
+
+    public function test_quick_status_reports_ok_when_no_errors_are_logged(): void
+    {
+        $response = $this->get('/api/test');
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('status', 'ok');
+    }
+
     public static function devicePostEndpoints(): array
     {
         return [

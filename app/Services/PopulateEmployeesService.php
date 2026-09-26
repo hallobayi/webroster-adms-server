@@ -15,9 +15,7 @@ class PopulateEmployeesService
     protected AdmsCommandService $commands;
 
     /**
-     * Constructor
-     *
-     * Inisialisasi service dengan model Device
+     * Bind the service to the device whose roster is being pushed.
      *
      * @author XMindware
      * @link https://github.com/hallobayi/webroster-adms-server/blob/main/app/Services/PopulateEmployeesService.php
@@ -29,9 +27,8 @@ class PopulateEmployeesService
     }
 
     /**
-     * Run Service
-     *
-     * Menjalankan proses populasi data karyawan ke tabel commands untuk disinkronkan ke mesin
+     * Queue the office's employees into device_commands, ready for the terminal
+     * to collect on its next poll.
      *
      * @author XMindware
      * @link https://github.com/hallobayi/webroster-adms-server/blob/main/app/Services/PopulateEmployeesService.php
@@ -48,6 +45,7 @@ class PopulateEmployeesService
 
         if ($employees->isEmpty()) {
             Log::info('No employees to populate', ['device_id' => $this->device->id]);
+
             return 0;
         }
 

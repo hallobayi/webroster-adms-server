@@ -188,8 +188,8 @@ class OfficeTimezoneTest extends TestCase
         );
 
         $this->assertTrue(
-            $device->hayDesfasesHoy(),
-            'hayDesfasesHoy() shares the window and must see the same punch'
+            $device->hasClockDiscrepancyToday(),
+            'hasClockDiscrepancyToday() shares the window and must see the same punch'
         );
     }
 

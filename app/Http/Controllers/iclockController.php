@@ -1,38 +1,43 @@
 <?php
 
 namespace App\Http\Controllers;
+
 use App\Jobs\SendWebhookJob;
-use App\Models\Attendance;
 use App\Models\Command;
 use App\Models\Device;
 use App\Models\DeviceLog;
-use App\Models\Fingerprint;
 use App\Models\LogEntry;
-use App\Services\BiometricRecordParser;
 use App\Services\Adms\AdmsCommandService;
 use App\Services\Adms\AdmsProtocol;
+use App\Services\BiometricRecordParser;
 use App\Services\FingerprintIngestService;
-use Illuminate\Http\Request;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
-use Log;
 
-
+/**
+ * The terminal-facing iClock / ADMS protocol endpoints.
+ *
+ * Every method here is called by a ZKTeco-compatible device, not by a browser:
+ * the handshake, the command queue poll, and the upload of attendance punches
+ * and biometric records. Responses are plain text in the shape the firmware
+ * expects, so they are built by hand rather than returned as views or JSON.
+ */
 class iclockController extends Controller
 {
-
-   public function __invoke(Request $request)
-   {
-
-   }
-
-    // handshake
+    /**
+     * Handshake: GET /iclock/cdata?SN=...
+     *
+     * The terminal asks for its configuration on first contact and after every
+     * reboot, and expects a block of "Key=Value" lines back.
+     */
     public function handshake(Request $request)
     {
         Log::info('call handshake ', ['request' => $request->all()]);
-        try{
-            
+
+        try {
             $endpoint = parse_url($request->url(), PHP_URL_PATH);
 
             // add to device logs
@@ -40,63 +45,67 @@ class iclockController extends Controller
                 'url' => $endpoint,
                 'data' => json_encode($request->getContent()),
                 'sn' => $request->input('SN'),
-                'option' => $request->input('option') ?? "handshake ",
+                'option' => $request->input('option') ?? 'handshake ',
             ];
-            
+
             DeviceLog::create($data);
-            // update status device
-            DB::table('devices')->updateOrInsert(
-                ['serial_number' => $request->input('SN')],
-                ['online' => now()]
-            );
+
+            $this->markDeviceOnline($request->input('SN'));
 
             // The terminal must already be registered. (The updateOrInsert above
             // normally registers it, so this only fires if that write failed.)
             $device = Device::where('serial_number', $request->input('SN'))->first();
+
             if (!$device) {
                 Log::error('handshake', ['error' => 'Device not found']);
-                return "ERROR: Device not found";
+
+                return 'ERROR: Device not found';
             }
 
-            // Two fields here used to be sent with the wrong type, which is a
-            // good way to make a terminal reject the whole options block:
-            //
-            //   OpStamp  is a unix timestamp, not a formatted date. It used to
-            //            carry "Y-m-d H:i:s".
-            //   TimeZone is an hour offset ("7"), not an IANA identifier. It
-            //            used to carry the office's "Asia/Jakarta". Both the
-            //            upstream reference implementation and the working
-            //            x100c deployment omit the field entirely, so it is
-            //            left out here too. The office timezone is still applied
-            //            when attendance timestamps are interpreted.
-            //
-            // TransTimes was commented out; the reference sends it.
-
-            $r = "GET OPTION FROM: {$request->input('SN')}\r\n" .
-                "Stamp=9999\r\n" .
-                "OpStamp=" . time() . "\r\n" .
-                "ErrorDelay=60\r\n" .
-                "Delay=30\r\n" .
-                "ResLogDay=18250\r\n" .
-                "ResLogDelCount=10000\r\n" .
-                "ResLogCount=50000\r\n" .
-                "TransTimes=00:00;14:05\r\n" .
-                "TransInterval=4\r\n" .
-                // Positions 6/7 (EnrollFP, ChgFP) are what make the terminal
-                // upload a fingerprint template as soon as it is enrolled or
-                // changed. See config/adms.php.
-                "TransFlag=" . config('adms.trans_flag', '1111111000') . "\r\n" .
-                "Realtime=1\r\n" .
-                "Encrypt=0";
-
-            return $r;
-
+            return $this->handshakeOptions((string) $request->input('SN'));
         } catch (Throwable $e) {
             $data['error'] = $e;
             DB::table('error_log')->insert($data);
             report($e);
-            return "ERROR: ".$e."\n";
+
+            return 'ERROR: ' . $e . "\n";
         }
+    }
+
+    /**
+     * The configuration block handed back to a terminal on handshake.
+     *
+     * Two fields used to be sent with the wrong type, which is a good way to
+     * make a terminal reject the whole options block:
+     *
+     *   OpStamp  is a unix timestamp, not a formatted date. It used to carry
+     *            "Y-m-d H:i:s".
+     *   TimeZone is an hour offset ("7"), not an IANA identifier. It used to
+     *            carry the office's "Asia/Jakarta". Both the upstream reference
+     *            implementation and the working x100c deployment omit the field
+     *            entirely, so it is left out here too. The office timezone is
+     *            still applied when attendance timestamps are interpreted.
+     *
+     * TransTimes was commented out; the reference sends it.
+     */
+    private function handshakeOptions(string $sn): string
+    {
+        return "GET OPTION FROM: {$sn}\r\n" .
+            "Stamp=9999\r\n" .
+            "OpStamp=" . time() . "\r\n" .
+            "ErrorDelay=60\r\n" .
+            "Delay=30\r\n" .
+            "ResLogDay=18250\r\n" .
+            "ResLogDelCount=10000\r\n" .
+            "ResLogCount=50000\r\n" .
+            "TransTimes=00:00;14:05\r\n" .
+            "TransInterval=4\r\n" .
+            // Positions 6/7 (EnrollFP, ChgFP) are what make the terminal
+            // upload a fingerprint template as soon as it is enrolled or
+            // changed. See config/adms.php.
+            "TransFlag=" . config('adms.trans_flag', '1111111000') . "\r\n" .
+            "Realtime=1\r\n" .
+            "Encrypt=0";
     }
 
     /**
@@ -128,7 +137,7 @@ class iclockController extends Controller
             if ($acks === []) {
                 Log::info('deviceCommand: no parsable acknowledgement', ['data' => $body]);
 
-                return "OK";
+                return 'OK';
             }
 
             $device = Device::where('serial_number', $request->input('SN'))->first();
@@ -169,7 +178,7 @@ class iclockController extends Controller
             Log::error('deviceCommand', ['error' => $e->getMessage()]);
         }
 
-        return "OK";
+        return 'OK';
     }
 
     /**
@@ -196,25 +205,13 @@ class iclockController extends Controller
 
             // Keep last-seen fresh whatever the payload turns out to be.
             try {
-                DB::table('devices')->updateOrInsert(
-                    ['serial_number' => $sn],
-                    ['online' => now()]
-                );
+                $this->markDeviceOnline($sn);
             } catch (Throwable $e) {
                 Log::error('receiveRecords update device ', ['error' => $e->getMessage()]);
             }
 
             try {
-                DeviceLog::create([
-                    'url' => parse_url($request->url(), PHP_URL_PATH),
-                    'data' => json_encode($request->all()),
-                    'tgl' => now(),
-                    'sn' => $sn,
-                    'option' => $request->input('option') ?? '',
-                    // Previously dereferenced a possibly-missing device and
-                    // took the whole request down with it.
-                    'idreloj' => $device->idreloj ?? '999999',
-                ]);
+                $this->recordDeviceLog($request, $sn, $device);
             } catch (Throwable $e) {
                 Log::error('receiveRecords device log ', ['error' => $e->getMessage()]);
             }
@@ -222,7 +219,7 @@ class iclockController extends Controller
             $parser = app(BiometricRecordParser::class);
 
             if ($table === 'OPERLOG' || $table === 'OPLOG' || $parser->looksLikeBiometricPayload($body)) {
-                return $this->receiveBiometricRecords($request, $sn, $table, $body, $device, $parser);
+                return $this->receiveBiometricRecords($sn, $table, $body, $device, $parser);
             }
 
             return $this->receiveAttendanceRecords($request, $sn, $body, $device);
@@ -239,7 +236,6 @@ class iclockController extends Controller
      * payload keeps its old home in device_options.
      */
     protected function receiveBiometricRecords(
-        Request $request,
         ?string $sn,
         string $table,
         string $body,
@@ -271,7 +267,7 @@ class iclockController extends Controller
             'lines' => count($lines),
         ]));
 
-        return "OK: " . count($lines);
+        return 'OK: ' . count($lines);
     }
 
     /**
@@ -279,8 +275,6 @@ class iclockController extends Controller
      */
     protected function receiveAttendanceRecords(Request $request, ?string $sn, string $body, ?Device $device)
     {
-        $attLogPayload = [];
-
         // Split on line breaks only. The old pattern also split on commas,
         // which silently mangled any field that contained one.
         $lines = preg_split('/\r\n|\r|\n/', $body) ?: [];
@@ -307,9 +301,11 @@ class iclockController extends Controller
             // arriving twice is the same event, so collapse it inside the
             // batch as well as against the table.
             $key = $data[0] . '|' . $data[1];
+
             if (isset($seen[$key])) {
                 continue;
             }
+
             $seen[$key] = true;
 
             $rows[] = [
@@ -341,10 +337,8 @@ class iclockController extends Controller
             DB::table('attendances')->insert($chunk);
         }
 
-        $attLogPayload = $rows;
-
         // Forward the batch to the device's webhook, if one is configured.
-        $this->dispatchWebhook($device, $attLogPayload);
+        $this->dispatchWebhook($device, $rows);
 
         // Report how many records the terminal sent, not how many we kept. The
         // terminal uses this count to advance its upload watermark, so handing
@@ -356,7 +350,7 @@ class iclockController extends Controller
             'duplicates' => count($seen) - count($rows),
         ]);
 
-        return "OK: " . count($seen);
+        return 'OK: ' . count($seen);
     }
 
     /**
@@ -429,44 +423,31 @@ class iclockController extends Controller
         }
     }
 
+    /**
+     * Realtime upload (GET /iclock/rtdata).
+     *
+     * The terminal only needs its last-seen refreshed and a bare "ok" back; the
+     * "DateTime=...,ServerTZ=..." reply it can also accept is deliberately not
+     * sent here.
+     */
     public function rtdata(Request $request)
     {
-        // log header and content
-        Log::info('rtdata', ['url' => json_encode($request->all())]);
-        Log::info('rtdata', ['data' => $request->getContent()]);
-        // log SN and type
-
-
-        $data = [
-            'url' => json_encode($request->all()),
+        Log::info('rtdata', [
+            'request' => $request->all(),
             'data' => $request->getContent(),
-            'sn' => $request->input('SN'),
-            'type' => $request->input('type'),
-        ];
-        Log::info('rtdata', ['data' => $data]);
+        ]);
 
+        $this->markDeviceOnline($request->input('SN'));
 
-        // update status device
-        DB::table('devices')->updateOrInsert(
-            ['serial_number' => $request->input('SN')],
-            ['online' => now()]
-        );
-
-        $intDateTime = AdmsProtocol::encodeDateTime(Carbon::now('GMT'));
-
-        $response = "DateTime=" . $intDateTime . ",ServerTZ=+0600";
-
-        Log::info('rtdata', ['response' => $response]);
-
-        return "ok";//$response;
+        return 'ok';
     }
 
     public function querydata(Request $request)
     {
         Log::info('---------call querydata', ['request' => $request->all()]);
-        // log header and content
         Log::info('querydata', ['url' => json_encode($request->all())]);
         Log::info('querydata', ['data' => $request->getContent()]);
+
         $endpoint = parse_url($request->url(), PHP_URL_PATH);
 
         // add to device logs
@@ -476,6 +457,7 @@ class iclockController extends Controller
             'sn' => $request->input('SN'),
             'table' => $request->input('table'),
         ];
+
         Log::info('querydata', ['data' => $data]);
 
         // A terminal always sends SN. Without one, updateOrInsert would try to
@@ -483,61 +465,54 @@ class iclockController extends Controller
         // unique, so the request died with a 23000 integrity violation. With
         // APP_DEBUG on, that handed a full stack trace to whoever asked.
         $sn = $request->input('SN');
+
         if (!$sn) {
             Log::warning('querydata called without SN');
-            return "OK";
+
+            return 'OK';
         }
 
-        // update status device
-        DB::table('devices')->updateOrInsert(
-            ['serial_number' => $sn],
-            ['online' => now()]
-        );
+        $this->markDeviceOnline($sn);
 
-        $response = "OK";
+        Log::info('querydata', ['response' => 'OK']);
 
-        Log::info('querydata', ['response' => $response]);
-
-        return $response;
+        return 'OK';
     }
 
     public function test(Request $request)
     {
         Log::info('call test', ['request' => $request->all()]);
 
-        return "OK";
+        return 'OK';
     }
+
+    /**
+     * The terminal's polling loop: it comes back every few seconds asking
+     * whether there is anything to do, and this is where queued commands are
+     * handed out.
+     */
     public function getrequest(Request $request)
     {
         Log::info('call getrequest', ['request' => $request->all()]);
 
         try {
             $device = Device::where('serial_number', $request->input('SN'))->first();
+
             if (!$device) {
                 Log::error('getrequest', ['error' => 'Device not found']);
-                return "ERROR: Device not found";
-            }
 
-            $endpoint = parse_url($request->url(), PHP_URL_PATH);
+                return 'ERROR: Device not found';
+            }
 
             // add to device logs — a logging failure must never stop the
             // terminal from receiving its queued commands.
             try {
-                $data = [
-                    'url' => $endpoint,
-                    'data' => json_encode($request->all()),
-                    'tgl' => now(),
-                    'sn' => $request->input('SN'),
-                    'option' => $request->input('option') ?? '',
-                    'idreloj' => $device->idreloj ?? '999999',
-                ];
-                DeviceLog::create($data);
-                Log::debug("inserted data ", $data);
+                $this->recordDeviceLog($request, $request->input('SN'), $device);
             } catch (Throwable $e) {
                 Log::error('getrequest device log', ['error' => $e->getMessage()]);
             }
 
-            //update last online
+            // update last online
             $device->update(['online' => now()]);
 
             // A fingerprint pull can queue hundreds of commands; handing them
@@ -551,87 +526,97 @@ class iclockController extends Controller
             $batchSize = (int) config('adms.commands_per_request', 20);
             $commands = $device->pendingCommands($batchSize > 0 ? $batchSize : null);
 
-            $timezone = $this->resolveTimezone($device->oficina->timezone ?? null);
-
-            $intDateTime = AdmsProtocol::encodeDateTime(Carbon::now($timezone));
-            
-            // Add a set time command to the database synchronously if clock is out of sync
-            // For now, mirroring the logic to always send it or send it as a regular command
-            // We will send it as a pending command if there's a discrepancy
-            // Queue a clock correction at most once per cooldown window. A
-            // pending-command check cannot throttle this: the correction is
-            // handed to the terminal and marked executed in the same request, so
-            // it is never pending by the time the next poll arrives. Without the
-            // cooldown this block added a device_commands row on every poll
-            // (~30 s) for as long as the counter stayed above zero.
-            $cooldown = (int) config('adms.clock_correction_cooldown', 30);
-
-            $recentCorrection = $device->commands()
-                ->where('data', 'like', '%SET OPTIONS DateTime=%')
-                ->where('created_at', '>=', now()->subMinutes($cooldown))
-                ->exists();
-
-            $discrepancies = $device->getTimezoneDiscrepancyCount();
-
-            if ($discrepancies > 0 && !$recentCorrection) {
-                $office = $device->oficina;
-
-                if ($office && !$office->timezoneIsGeneric()) {
-                    app(AdmsCommandService::class)->queue(
-                        $device,
-                        AdmsProtocol::setDateTime($intDateTime),
-                        AdmsProtocol::TYPE_SET_DATETIME
-                    );
-
-                    // Refresh, so the correction just queued goes out in this
-                    // same response — with the same batch limit applied.
-                    $commands = $device->pendingCommands($batchSize > 0 ? $batchSize : null);
-                } else {
-                    // Ordering a terminal to set its clock from a generic zone
-                    // is worse than leaving it alone: an Indonesian office
-                    // recorded as UTC makes this a 7 hour shift, the terminal
-                    // obeys, its punches then read as skewed and the next poll
-                    // orders another correction. $intDateTime is unused here by
-                    // design - the wrong answer is not a fallback.
-                    Log::warning('getrequest: clock correction skipped, office has no local timezone', [
-                        'sn' => $device->serial_number,
-                        'idoficina' => $office?->idoficina,
-                        'timezone' => $office?->timezone,
-                        'discrepancies' => $discrepancies,
-                    ]);
-                }
+            if ($this->queueClockCorrectionIfNeeded($device)) {
+                // Re-read only when a correction was actually queued, so it goes
+                // out in this same response — with the same batch limit applied.
+                $commands = $device->pendingCommands($batchSize > 0 ? $batchSize : null);
             }
 
             Log::info('getrequest commands', ['commands' => count($commands)]);
 
             if ($commands->isEmpty()) {
                 Log::info('getrequest', ['info' => 'No pending commands']);
-                return "OK";
+
+                return 'OK';
             }
 
-            // Collect and concatenate all command data
-            $data = $commands->pluck('data');
-            $response = implode("\r\n", $data->toArray()) . "\r\n";
+            $response = implode("\r\n", $commands->pluck('data')->toArray()) . "\r\n";
 
-            //remove last \r\n
+            // remove last \r\n
             $response = substr($response, 0, -2);
 
             // Update commands' executed_at timestamps
             DB::transaction(function () use ($commands) {
                 foreach ($commands as $command) {
-                    if ($command instanceof \App\Models\Command) { 
+                    if ($command instanceof Command) {
                         $command->update(['executed_at' => now()]);
                     }
                 }
             });
-            return $response;
 
+            return $response;
         } catch (Throwable $e) {
-            $data['data'] = $e;
-            Log::error('getrequest', ['data' => $data]);
+            Log::error('getrequest', ['error' => $e->getMessage()]);
             report($e);
-            return "OK";
+
+            return 'OK';
         }
+    }
+
+    /**
+     * Queue a clock correction when this terminal's punches look skewed.
+     *
+     * A correction is queued at most once per cooldown window. A
+     * pending-command check cannot throttle this: the correction is handed to
+     * the terminal and marked executed in the same request, so it is never
+     * pending by the time the next poll arrives. Without the cooldown this
+     * block added a device_commands row on every poll (~30 s) for as long as
+     * the counter stayed above zero.
+     *
+     * An office with a generic timezone is skipped on purpose: ordering a
+     * terminal to set its clock from a zone that is not where the building is
+     * makes it obey, after which its punches read as skewed and the next poll
+     * orders another correction — a loop that never settles.
+     *
+     * @return bool whether a correction was queued
+     */
+    private function queueClockCorrectionIfNeeded(Device $device): bool
+    {
+        $cooldown = (int) config('adms.clock_correction_cooldown', 30);
+
+        $recentCorrection = $device->commands()
+            ->where('data', 'like', '%SET OPTIONS DateTime=%')
+            ->where('created_at', '>=', now()->subMinutes($cooldown))
+            ->exists();
+
+        $discrepancies = $device->getTimezoneDiscrepancyCount();
+
+        if ($discrepancies <= 0 || $recentCorrection) {
+            return false;
+        }
+
+        $office = $device->oficina;
+
+        if ($office && !$office->timezoneIsGeneric()) {
+            $timezone = $this->resolveTimezone($office->timezone);
+
+            app(AdmsCommandService::class)->queue(
+                $device,
+                AdmsProtocol::setDateTime(AdmsProtocol::encodeDateTime(Carbon::now($timezone))),
+                AdmsProtocol::TYPE_SET_DATETIME
+            );
+
+            return true;
+        }
+
+        Log::warning('getrequest: clock correction skipped, office has no local timezone', [
+            'sn' => $device->serial_number,
+            'idoficina' => $office?->idoficina,
+            'timezone' => $office?->timezone,
+            'discrepancies' => $discrepancies,
+        ]);
+
+        return false;
     }
 
     public function quickStatus(Request $request)
@@ -641,29 +626,34 @@ class iclockController extends Controller
         $lastError = DB::table('error_log')
             ->orderBy('created_at', 'desc')
             ->first();
-        $data = [];
 
         if ($lastError) {
             Log::info('quickStatus', ['lastError' => $lastError]);
+
             $data = [
                 'status' => 'error',
                 'message' => substr($lastError->data, 0, 16),
                 'error' => substr($lastError->data, 0, 30),
-                'timestamp' => $lastError->created_at ? $lastError->created_at->toIso8601String() : '',
+                // created_at comes back from the query builder as a plain
+                // string, not a Carbon instance.
+                'timestamp' => $lastError->created_at
+                    ? Carbon::parse($lastError->created_at)->toIso8601String()
+                    : '',
             ];
-        }
-        else {
+        } else {
             Log::info('quickStatus', ['status' => 'ok']);
+
             $data = [
                 'status' => 'ok',
                 'message' => 'No errors found',
             ];
         }
+
         $response = response()->json($data);
-        // Forzar que no se use Transfer-Encoding: chunked
+        // Force it not to use Transfer-Encoding: chunked.
         $response->header('Content-Length', strlen($response->getContent()));
         $response->header('Connection', 'close');
-    
+
         return $response;
     }
 
@@ -696,6 +686,34 @@ class iclockController extends Controller
 
         return response()->json(['status' => 'OK']);
     }
+
+    /**
+     * Refresh the terminal's last-seen timestamp, registering it if this is the
+     * first time we have seen its serial number.
+     */
+    private function markDeviceOnline(?string $sn): void
+    {
+        DB::table('devices')->updateOrInsert(
+            ['serial_number' => $sn],
+            ['online' => now()]
+        );
+    }
+
+    /**
+     * Record one incoming request against the device log.
+     */
+    private function recordDeviceLog(Request $request, ?string $sn, ?Device $device): void
+    {
+        DeviceLog::create([
+            'url' => parse_url($request->url(), PHP_URL_PATH),
+            'data' => json_encode($request->all()),
+            'tgl' => now(),
+            'sn' => $sn,
+            'option' => $request->input('option') ?? '',
+            'idreloj' => $device->idreloj ?? '999999',
+        ]);
+    }
+
     /**
      * Resolve a timezone to something PHP/Carbon will actually accept.
      *
@@ -731,8 +749,7 @@ class iclockController extends Controller
 
     private function validateAndFormatInteger($value)
     {
-        return isset($value) && $value !== '' ? (int)$value : null;
-        // return is_numeric($value) ? (int) $value : null;
+        return isset($value) && $value !== '' ? (int) $value : null;
     }
 
     /**
@@ -755,7 +772,9 @@ class iclockController extends Controller
         if (!$device || empty($attLog)) {
             return;
         }
+
         $webhook = $device->webhook;
+
         if (!$webhook || empty($webhook->url)) {
             return;
         }
